@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+This release is named for the element **Seaborgium  (Sg)**. Seaborgium was named after Glenn Seaborg while he was still alive, an unusual honor for an element discoverer.
+
 ### Summary
 
 Make BMCyber's GitHub Pages documentation available in Ukrainian using R3el's existing locale and shared language selector.
