@@ -2,11 +2,11 @@ from typing import Final
 
 
 class DBMCyber:
-    VERSION: Final[str] = "0.3.0"
+    VERSION: Final[str] = "0.3.1"
     CMDB_TYPE: Final[str] = "application"
     CMDB_SUBTYPE: Final[str] = "Application"
     CMDB_SUPPLIER: Final[str] = "Nadim-Daniel"
-    CMDB_CODENAME: Final[str] = "Seaborgium"
+    CMDB_CODENAME: Final[str] = "Hassium"
     CMDB_COMPONENTS = (("Configuration", "conf"),)
     CMDB_DATABASES = ()
     # Declare every owned listener; runtime defaults must use these bindings.

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-31 @ 11:03
+
 ### Summary
 
 Deploy BMCyber with its own managed Python environment so running services and Fail2ban clients never depend on a development checkout or globally installed PyZMQ. Refresh the pinned BMForge installation guidance and starter installer template to support application-owned production Python environments.
