@@ -46,7 +46,8 @@ def reject_symlinks(path: Path) -> None:
 
 
 class Installation:
-    def __init__(self, checkout: Path, *, destination: Path | None = None, host=None) -> None:
+    def __init__(self, checkout: Path, *, destination: Path | None = None, host=None,
+                 run=subprocess.run) -> None:
         self.checkout = checkout.resolve()
         self.version_file = f"{PROJECT_NAME.lower()}/constants/D{PROJECT_NAME}.py"
         spec = importlib.util.spec_from_file_location('cmdb_checker', self.checkout / 'scripts/check-cmdb.py')
@@ -61,6 +62,7 @@ class Installation:
             raise ValueError("Run deployment from a separate checkout outside the installation")
 
         self.host = host or ServiceInstallation(self.checkout, self.destination)
+        self.run = run
 
     def installed_files(self) -> list[str] | None:
         manifest = self.destination / MANIFEST
@@ -138,7 +140,7 @@ class Installation:
             raise ValueError(f"Virtual environment path is not a directory: {venv}")
         if action != 'uninstall' and venv.exists() and not self.venv_owned():
             raise ValueError(f"Refusing to overwrite an unowned virtual environment: {venv}")
-        if venv.exists() and self.venv_owned():
+        if action != 'uninstall' and venv.exists() and self.venv_owned():
             settings = venv / 'pyvenv.cfg'
             reject_symlinks(settings)
             if settings.exists() and '/opt/dev/' in settings.read_text():
@@ -148,6 +150,9 @@ class Installation:
         environment = os.environ.copy()
         environment.pop('PYTHONPATH', None)
         environment.pop('PYTHONHOME', None)
+        environment.pop('VIRTUAL_ENV', None)
+        for variable in ('PIP_TARGET', 'PIP_PREFIX', 'PIP_USER'):
+            environment.pop(variable, None)
         return environment
 
     def prepare_python(self) -> None:
@@ -155,19 +160,19 @@ class Installation:
         python = venv / 'bin/python'
         environment = self.python_environment()
         if not (venv / 'pyvenv.cfg').is_file() or not python.is_file():
-            subprocess.run([SYSTEM_PYTHON, '-m', 'venv', str(venv)],
+            self.run([SYSTEM_PYTHON, '-m', 'venv', str(venv)],
                            check=True, env=environment, timeout=120)
-        subprocess.run([str(python), '-m', 'pip', 'install', '--upgrade',
+        self.run([str(python), '-m', 'pip', 'install', '--upgrade',
                         '-r', str(self.destination / 'requirements.txt')],
                        check=True, cwd=self.destination, env=environment, timeout=300)
 
     def verify_python(self) -> None:
         python = str(self.destination / VENV_DIR / 'bin/python')
         environment = self.python_environment()
-        subprocess.run([python, '-B', '-m', 'bmcyber', '--check-config',
+        self.run([python, '-B', '-m', 'bmcyber', '--check-config',
                         '--config', str(self.destination / 'conf/bmcyber.json')],
                        check=True, cwd=self.destination, env=environment, timeout=30)
-        subprocess.run([python, '-B', '-m', 'bmcyber.client', '--help'],
+        self.run([python, '-B', '-m', 'bmcyber.client', '--help'],
                        check=True, cwd=self.destination, env=environment, timeout=30)
 
     def atomic_write(self, path: Path, content: bytes, mode: int = 0o644) -> None:
