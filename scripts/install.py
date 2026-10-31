@@ -24,6 +24,8 @@ COPY_TREES = ("bmcyber", "scripts", "systemd", "fail2ban")
 COPY_FILES = ("requirements.txt",)
 MANIFEST = ".installation-manifest.json"
 VERSION_MARKER = ".deployment-version"
+VENV_DIR = ".venv"
+SYSTEM_PYTHON = "/usr/bin/python3"
 
 
 def relative_path(name: str) -> str:
@@ -44,7 +46,8 @@ def reject_symlinks(path: Path) -> None:
 
 
 class Installation:
-    def __init__(self, checkout: Path, *, destination: Path | None = None, host=None) -> None:
+    def __init__(self, checkout: Path, *, destination: Path | None = None, host=None,
+                 run=subprocess.run) -> None:
         self.checkout = checkout.resolve()
         self.version_file = f"{PROJECT_NAME.lower()}/constants/D{PROJECT_NAME}.py"
         spec = importlib.util.spec_from_file_location('cmdb_checker', self.checkout / 'scripts/check-cmdb.py')
@@ -59,6 +62,7 @@ class Installation:
             raise ValueError("Run deployment from a separate checkout outside the installation")
 
         self.host = host or ServiceInstallation(self.checkout, self.destination)
+        self.run = run
 
     def installed_files(self) -> list[str] | None:
         manifest = self.destination / MANIFEST
@@ -71,6 +75,8 @@ class Installation:
         if (not isinstance(data, dict) or data.get('project') != PROJECT_NAME
                 or not isinstance(data.get('files'), list)):
             raise ValueError("Installation ownership manifest does not match this project")
+        if 'venv_owned' in data and not isinstance(data['venv_owned'], bool):
+            raise ValueError("Invalid virtual environment ownership record")
         names = [relative_path(name) for name in data['files']]
         if (len(names) != len(set(names))
                 or self.version_file not in names and not (not names and data.get('removed') is True)):
@@ -90,7 +96,7 @@ class Installation:
             if not folder.is_dir():
                 raise ValueError(f"Missing source directory: {name}")
             for path in folder.rglob('*'):
-                if '__pycache__' in path.parts or path.suffix in ('.pyc', '.pyo'):
+                if '__pycache__' in path.parts or VENV_DIR in path.parts or path.suffix in ('.pyc', '.pyo'):
                     continue
                 reject_symlinks(path)
                 if path.is_file():
@@ -119,8 +125,55 @@ class Installation:
             for name in set(current) - set(previous):
                 if (self.destination / name).exists():
                     raise ValueError(f"New managed file would overwrite an unowned file: {name}")
+        self.preflight_venv(action)
         self.host.preflight(action)
         return previous, current
+
+    def venv_owned(self) -> bool:
+        manifest = self.destination / MANIFEST
+        return manifest.exists() and json.loads(manifest.read_text()).get('venv_owned') is True
+
+    def preflight_venv(self, action: str) -> None:
+        venv = self.destination / VENV_DIR
+        reject_symlinks(venv)
+        if venv.exists() and not venv.is_dir():
+            raise ValueError(f"Virtual environment path is not a directory: {venv}")
+        if action != 'uninstall' and venv.exists() and not self.venv_owned():
+            raise ValueError(f"Refusing to overwrite an unowned virtual environment: {venv}")
+        if action != 'uninstall' and venv.exists() and self.venv_owned():
+            settings = venv / 'pyvenv.cfg'
+            reject_symlinks(settings)
+            if settings.exists() and '/opt/dev/' in settings.read_text():
+                raise ValueError("Production virtual environment depends on /opt/dev")
+
+    def python_environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment.pop('PYTHONPATH', None)
+        environment.pop('PYTHONHOME', None)
+        environment.pop('VIRTUAL_ENV', None)
+        for variable in ('PIP_TARGET', 'PIP_PREFIX', 'PIP_USER'):
+            environment.pop(variable, None)
+        return environment
+
+    def prepare_python(self) -> None:
+        venv = self.destination / VENV_DIR
+        python = venv / 'bin/python'
+        environment = self.python_environment()
+        if not (venv / 'pyvenv.cfg').is_file() or not python.is_file():
+            self.run([SYSTEM_PYTHON, '-m', 'venv', str(venv)],
+                           check=True, env=environment, timeout=120)
+        self.run([str(python), '-m', 'pip', 'install', '--upgrade',
+                        '-r', str(self.destination / 'requirements.txt')],
+                       check=True, cwd=self.destination, env=environment, timeout=300)
+
+    def verify_python(self) -> None:
+        python = str(self.destination / VENV_DIR / 'bin/python')
+        environment = self.python_environment()
+        self.run([python, '-B', '-m', 'bmcyber', '--check-config',
+                        '--config', str(self.destination / 'conf/bmcyber.json')],
+                       check=True, cwd=self.destination, env=environment, timeout=30)
+        self.run([python, '-B', '-m', 'bmcyber.client', '--help'],
+                       check=True, cwd=self.destination, env=environment, timeout=30)
 
     def atomic_write(self, path: Path, content: bytes, mode: int = 0o644) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +212,11 @@ class Installation:
             self.host.uninstall()
             if previous is not None:
                 self.remove_files(previous)
+                if self.venv_owned():
+                    venv = self.destination / VENV_DIR
+                    reject_symlinks(venv)
+                    if venv.is_dir():
+                        shutil.rmtree(venv)
                 (self.destination / VERSION_MARKER).unlink(missing_ok=True)
                 (self.destination / MANIFEST).unlink()
                 try:
@@ -176,7 +234,7 @@ class Installation:
         # Keep ownership information for partial copies so a retry or uninstall can
         # account for new files. Advance the successful-version marker only last.
         owned = sorted(set(previous or ()) | set(names))
-        ownership = {'project': PROJECT_NAME, 'files': owned}
+        ownership = {'project': PROJECT_NAME, 'files': owned, 'venv_owned': True}
         self.atomic_write(self.destination / MANIFEST, (json.dumps(ownership, indent=2) + '\n').encode())
         # Existing managed files may change before success; this is not rollback.
         for name in [item for item in names if item != self.version_file]:
@@ -185,7 +243,9 @@ class Installation:
             self.atomic_write(self.destination / name, source.read_bytes(), mode)
         self.remove_files(sorted(set(previous or ()) - set(names)))
         self.atomic_write(self.destination / self.version_file, (self.checkout / self.version_file).read_bytes())
+        self.prepare_python()
         self.host.configure()
+        self.verify_python()
         self.host.start()
         self.host.health()
         ownership['files'] = names
