@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31 @ 08:30
+
 ### Summary
 
 Refresh the pinned BMForge engineering guidance and prepare BMCyber documentation for GitHub Pages using BMForge's canonical scaffold, with BMDynIP as the project reference.
