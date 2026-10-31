@@ -1,11 +1,17 @@
-# Registering an application's security log
+---
+title: "Registering an application's security log"
+lang: en
+locale: en-US
+language_name: English
+translation_key: bmcyber-application-log-integration
+---
 
 This guide describes BMCyber's application log integration. MyCount on
 wintermute is the first use case. The service, client, filter and action are
 implemented; the supplied MyCount jail remains disabled until its deployment
 log path and trusted client-IP handling are verified. This guide follows the
 pinned BMForge Fail2ban and nftables contracts at specification `0.2.0` from
-BMForge `0.19.1`. See [installation and operation](installation.md) for
+BMForge `0.19.1`. See [installation and operation]({{ site.baseurl }}{% link pages/installation.md %}) for
 prerequisites, deployment and the IPC protocol.
 
 ## How an event becomes a ban
@@ -267,4 +273,8 @@ Native filter and end-to-end Fail2ban/IPC/nftables checks have passed in an
 isolated environment, including IPv4/IPv6 enforcement and expiry and actual
 IPC group permissions. The target installation on wintermute still requires
 its log/proxy configuration and systemd-managed lifecycle verification. See
-the [verification record](installation.md#verification).
+the [verification record]({{ site.baseurl }}{% link pages/installation.md %}#verification).
+
+---
+
+[Documentation index]({{ site.baseurl }}{% link index.md %})

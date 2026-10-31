@@ -40,6 +40,7 @@ Animated GIF exports are separately covered by [GIF Animation]({{ site.baseurl }
 
 ## Blueprints
 
+- [Project GitHub Pages: shared theme, required logo and site scaffold]({{ site.baseurl }}{% link pages/jekyll-setup.md %})
 - [HTTP Display Server]({{ site.baseurl }}{% link pages/component-http.md %})
 - [Timeline Editing: vis-timeline, requires HTTP]({{ site.baseurl }}{% link pages/component-timeline.md %})
 - [ZeroMQ Request/Reply Server]({{ site.baseurl }}{% link pages/component-zmq.md %})
