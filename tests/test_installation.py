@@ -287,9 +287,9 @@ def test_real_venv_imports_deployed_app_without_source_checkout(tmp_path, monkey
     wheel = wheels / 'pyzmq-26.4.0-py3-none-any.whl'
     dist = 'pyzmq-26.4.0.dist-info'
     with zipfile.ZipFile(wheel, 'w') as archive:
-        archive.writestr('zmq/__init__.py', '__version__ = "26.4.0"\\nclass ZMQError(Exception): pass\\n')
-        archive.writestr(f'{dist}/METADATA', 'Metadata-Version: 2.1\\nName: pyzmq\\nVersion: 26.4.0\\n')
-        archive.writestr(f'{dist}/WHEEL', 'Wheel-Version: 1.0\\nGenerator: test\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n')
+        archive.writestr('zmq/__init__.py', '__version__ = "26.4.0"\nclass ZMQError(Exception): pass\n')
+        archive.writestr(f'{dist}/METADATA', 'Metadata-Version: 2.1\nName: pyzmq\nVersion: 26.4.0\n')
+        archive.writestr(f'{dist}/WHEEL', 'Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n')
         archive.writestr(f'{dist}/RECORD', '')
     monkeypatch.setenv('PIP_NO_INDEX', '1')
     monkeypatch.setenv('PIP_FIND_LINKS', str(wheels))
