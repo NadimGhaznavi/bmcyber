@@ -69,7 +69,9 @@ class ServiceInstallation:
             if self.which(executable) is None:
                 raise ValueError(f'missing required executable: {executable}')
         if action != 'uninstall':
-            self.command('/usr/bin/python3', '-c', 'import zmq; print(zmq.__version__)')
+            # Python's venv/ensurepip support is required, not global PyZMQ.
+            # Deployed packages are installed in /opt/prod/bmcyber/.venv.
+            self.command('/usr/bin/python3', '-c', 'import venv, ensurepip')
         for original, relative in self.RESOURCES.items():
             target = self.root / relative
             self.safe(target)
