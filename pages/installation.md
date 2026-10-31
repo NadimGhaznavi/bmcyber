@@ -1,0 +1,210 @@
+# Installation and operation
+
+BMCyber is a single-host root systemd service plus a local Fail2ban action
+client. MyCount's flood detector remains in MyCount. SnakeWeb integration is
+outside this implementation.
+
+## Prerequisites
+
+Use Linux with systemd, nftables timeout sets, Fail2ban, and Python 3.11 or
+newer. PyZMQ must be available to `/usr/bin/python3`; `requirements.txt` records
+the tested version. The installer checks dependencies but does not install
+host packages or Python dependencies. It uses `/usr/sbin/nft` explicitly.
+`groupadd`, `systemctl` and `fail2ban-client` must also be available to the
+installer. Run the lifecycle commands from a separate source checkout.
+
+Verified here: Python 3.13.5, PyZMQ 26.4.0/libzmq 4.3.5, nftables 1.1.3,
+Fail2ban 1.1.0, and Linux 6.12.111+deb13-amd64. Validate the native behavior
+on wintermute's installed versions before deployment.
+
+## Install, upgrade and uninstall
+
+These are operator commands; development and tests do not execute a host
+installation automatically.
+
+```sh
+sudo scripts/install.sh --check
+sudo scripts/install.sh
+sudo scripts/upgrade.sh --check
+sudo scripts/upgrade.sh
+sudo scripts/uninstall.sh --check
+sudo scripts/uninstall.sh
+```
+
+All three scripts support `--help`. `--check` validates without changing
+files, accounts, services or rules; nftables preflight still needs firewall
+inspection/check privileges. Invalid configuration or missing dependencies
+fail before stopping services.
+
+Installation copies application-owned source into `/opt/prod/bmcyber`,
+creates the `bmcyber` system group when absent, writes only the named unit,
+filter, action and jail files, and starts BMCyber before loading its jail.
+The service runs as **root**, not a dedicated account. No `bmcyber` user is
+created. systemd creates `/run/bmcyber` as `root:bmcyber`, mode `0750`; a
+process umask of `0117` creates the IPC socket with mode `0660` immediately.
+A root-owned lock prevents a second service instance replacing the socket.
+Stale sockets are removed only after acquiring that lock; unrelated files
+are rejected.
+
+The installer refuses to overwrite unowned resources. Upgrade and reinstall
+preserve production JSON, operator data and the deployed MyCount jail.
+`.deployment-version` advances only after service startup and a successful
+native IPC health probe. A failed deployment reports failure; file copying
+is not a transactional rollback. Inspect or retry the checkout after failure.
+
+Uninstall removes the owned unit, filter, action, jail, source payload and
+nftables table. It preserves unrelated firewall tables and Fail2ban jails,
+production JSON, user data, and a copy of the MyCount jail under
+`conf/bmcyber-mycount.local`. It retains the system group and its memberships.
+An ownership manifest accounts for retained files and permits repeat uninstall
+or reinstall. The last-successful version marker is removed on uninstall.
+
+## Configure and operate
+
+The production file is `/opt/prod/bmcyber/conf/bmcyber.json`. Missing fields
+inherit constant defaults; malformed files, unknown settings, wrong types
+and invalid values fail visibly. First installation generates the file from
+constants only when missing. Explicit populated values are operator overrides
+and remain fixed if later defaults change. Restart after editing.
+
+| JSON setting | Default constant | Default and validation |
+| --- | --- | --- |
+| `ipc.socket_path` | `DZMQ.SOCKET_PATH` | `/run/bmcyber/control.sock`; a named socket directly under `/run/bmcyber`, within Linux's path-length limit. |
+| `ipc.timeout_seconds` | `DZMQ.TIMEOUT_SECONDS` | `5`; finite number from `0.01` to `60`. |
+| `ban.base_hours` | `DPolicy.BASE_HOURS` | `20`; finite number equivalent to at least one second. |
+| `ban.random_extra_hours` | `DPolicy.RANDOM_EXTRA_HOURS` | `4`; finite nonnegative number. Base plus maximum addition cannot exceed seven days. |
+| `ban.protected_ips` | `DPolicy.PROTECTED` | Loopback IPv4 and IPv6 networks; array of numeric addresses or canonical CIDR networks. |
+
+Policy selects whole seconds from the base plus a random additional duration.
+Keep the native jail's `bantime` at or below the service's minimum block
+duration. If reducing `base_hours`, adjust the jail's ticket interval too,
+so Fail2ban can detect fresh abuse when the kernel block expires. This native
+interval does not remove enforcement entries.
+
+Validate configuration and operate the integration in an explicit order:
+
+```sh
+python3 -m bmcyber --check-config --config conf/bmcyber.json
+sudo scripts/services start
+sudo scripts/services restart
+sudo scripts/services stop
+```
+
+Start brings up BMCyber, then Fail2ban, then reloads the named jail. Stop stops
+only the MyCount jail, then BMCyber, leaving unrelated Fail2ban jails running.
+Restart validates application and Fail2ban configuration before stopping.
+Add the account running any non-root action client to the `bmcyber` group and
+start a new login/session for its supplementary group membership to apply.
+
+The installed client supports:
+
+```sh
+/opt/prod/bmcyber/scripts/bmcyber-client health
+/opt/prod/bmcyber/scripts/bmcyber-client ban --ip 192.0.2.10 --source mycount
+```
+
+The ban command is an example using a documentation address. The client also
+accepts global `--config`, `--timeout` and `--locale` options before the method.
+It returns zero only after a correlated successful acknowledgement. Rejection,
+missing service and timeout return nonzero. A missing reply has an uncertain
+outcome: no blind retry or direct firewall fallback is performed. Human-facing
+client messages use the bundled English catalogue; no translations are shipped.
+Service diagnostics go to the systemd journal.
+
+## IPC protocol
+
+IPC uses BMForge ZMQ REQ/REP protocol version `1`, one UTF-8 JSON frame per
+request and reply, with a maximum frame size of 65,536 bytes. The envelope is:
+
+```json
+{
+  "protocol_version": 1,
+  "sender": "mycount-action",
+  "target": "bmcyber",
+  "method": "ban",
+  "payload": {"ip": "192.0.2.10", "source": "bmcyber-mycount"}
+}
+```
+
+`ban` accepts only a numeric individual IPv4/IPv6 address and a diagnostic
+source token matching `[A-Za-z0-9][A-Za-z0-9_.-]{0,63}`. No duration, raw
+log text, nft command, table name or source claim is accepted. `health` takes
+an empty payload and performs a bounded read-only check of the owned rules.
+The `target` may also be null. Unsupported methods and targets return errors.
+
+Replies preserve the request method and address the original sender. Their
+payload has `status: "ok"` or `status: "error"` with `error.code` and
+`error.message`. Ban success returns the normalized `ip` and selected
+`duration_seconds`. Error codes include `invalid_request`, `wrong_target`,
+`unknown_method`, `enforcement_failed` and `internal_error`. Malformed requests,
+including lone Unicode surrogates in nested data or keys, receive an error
+without killing the worker. The IPC group is the caller authorization boundary;
+`sender` and `source` are diagnostic strings, not authenticated identities.
+
+## Firewall lifecycle
+
+BMCyber owns only `table inet bmcyber`, marked with its ownership comment,
+two timed address sets and input drop rules at priority `-10`. An existing
+owned structure is verified, never flushed at startup. Other firewall tables
+continue applying their normal policy. This targets host input, including
+traffic to Caddy; it does not configure forwarded or container traffic.
+
+On tested nftables 1.1.3, `add element` on an already active address refreshes
+its timeout. Repeated requests therefore apply a fresh service-selected full
+duration. There is no application deadline or duplicate ledger. Timeout-set
+expiry restores traffic without an application cleanup loop. The adapter also
+supports explicit administrative removal; there is no unban IPC method and
+Fail2ban never invokes removal.
+
+Service restarts preserve active kernel entries. A reboot loses them, and
+BMCyber restores none. Native Fail2ban restored tickets may submit ordinary
+fresh requests. External removal or alteration of the table makes health and
+ban operations fail visibly; fix the structure and restart the service to
+reinitialize it. Do not persist BMCyber's table in a saved host ruleset.
+
+## Verification
+
+Run the regular tests, which use temporary IPC sockets and filesystem/service
+fixtures and do not modify firewall rules:
+
+```sh
+python3 -m pytest -q tests
+```
+
+In an environment permitting user/network namespaces, run the live firewall
+check with the guard set to the parent namespace:
+
+```sh
+python3 - <<'PY'
+import os, subprocess, sys
+env = dict(os.environ, BMCYBER_PARENT_NETNS=str(os.stat('/proc/self/ns/net').st_ino))
+subprocess.run(['unshare', '-Urn', sys.executable, 'tests/live_firewall.py'], env=env, check=True)
+PY
+```
+
+`tests/live_fail2ban.py` uses the same guard and needs
+`BMCYBER_FAIL2BAN_ROOT` pointing to an extracted Fail2ban package tree. It
+starts a temporary daemon with a polling test jail and shortened durations,
+uses the production client with an injected temporary endpoint, and verifies
+native detection, exemptions and non-removal on ticket expiry, manual unban
+and jail stop. No host package or service installation is needed for that test.
+
+`tests/live_permissions.py` requires root and uses only temporary sockets to
+check a permitted non-root group member and an unrelated unprivileged account.
+`tests/live_service.py` requires explicit private mount/network namespace guards
+and root; it tests the real service entry point with temporary `/run` and group
+mounts. Do not run those fixtures against an installed service.
+
+The verified checks include native IPv4/IPv6 packet drop and expiry, repeated
+insertion, explicit adapter removal, unrelated-table preservation, root service
+start/stop/restart, actual IPC group permissions, malformed-message recovery,
+client error status, systemd unit verification, and install/upgrade/uninstall
+ownership and failure behavior using service fixtures. Native filter verification
+matches the two intended IPv4/IPv6 events in
+`tests/fixtures/security-events.log`, recognizes all eight timestamps and rejects
+six benign/invalid records.
+
+An actual systemd-managed installation on wintermute has not been performed.
+Before deployment, verify its package versions, actual MyCount log path,
+trusted proxy/client-IP configuration, administrative exemptions and complete
+install/upgrade/uninstall behavior on a disposable host with systemd.

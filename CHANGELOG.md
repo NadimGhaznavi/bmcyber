@@ -4,7 +4,7 @@
 
 ### Summary
 
-Establish BMCyber's engineering foundation with pinned BMForge skills and application release scaffolding. Align the proposed MyCount integration with service-selected ban durations and kernel-owned expiry, so Fail2ban ticket expiry cannot shorten a block.
+Implement host-local timed IP blocking through a root IPC service, a Fail2ban action client and nftables. BMCyber selects the default 20–24-hour duration while the kernel owns expiry; group permissions restrict local callers and the application keeps no ban state.
 
 ### Added
 
@@ -12,6 +12,9 @@ Establish BMCyber's engineering foundation with pinned BMForge skills and applic
 - Add project instructions, BMCyber application metadata, and release tooling with deployment-disabled lifecycle stubs.
 - Document application log registration, the proposed `fail2safe` event format, trusted client IP handling, and validation requirements for timed bans in `pages/application-log-integration.md`.
 - Pin BMForge ZMQ 0.4.0, Fail2ban 0.1.0, and nftables 0.1.0 skills at cached source revision `0002bd59ee8e` for the agreed host-local blocking implementation.
+- Add the root IPC service, ban/health protocol, validated policy configuration, English CLI catalogue, and nftables adapter with owned-table verification and no persistent ban tracking.
+- Add native Fail2ban filter, ban-only action and disabled MyCount jail, plus sequential service controls and complete install/upgrade/uninstall ownership and health verification.
+- Add unit and lifecycle tests, isolated native firewall/Fail2ban/root-service/permission checks, and installation and operation documentation.
 
 ### Changed
 

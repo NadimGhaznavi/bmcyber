@@ -1,0 +1,7 @@
+{
+  "cli.client.description": "Request a local BMCyber ban or check service health.",
+  "cli.service.description": "Run the BMCyber IPC service or validate its configuration.",
+  "cli.failure": "BMCyber failed: {detail}",
+  "cli.success": "BMCyber acknowledged {method}: {result}",
+  "cli.checked": "BMCyber configuration is valid."
+}

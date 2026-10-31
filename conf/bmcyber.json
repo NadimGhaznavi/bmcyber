@@ -1,0 +1,11 @@
+{
+  "ipc": {
+    "socket_path": "/run/bmcyber/control.sock",
+    "timeout_seconds": 5
+  },
+  "ban": {
+    "base_hours": 20,
+    "random_extra_hours": 4,
+    "protected_ips": ["127.0.0.0/8", "::1/128"]
+  }
+}

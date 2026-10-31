@@ -1,10 +1,12 @@
 # Registering an application's security log
 
-This guide defines the proposed application integration for BMCyber. MyCount
-on wintermute is the first use case. The service, Fail2ban filter and action
-described here are not implemented yet; configuration examples are for review,
-not deployment. This guide follows the pinned BMForge Fail2ban and nftables
-contracts at specification `0.2.0` from BMForge `0.19.1`.
+This guide describes BMCyber's application log integration. MyCount on
+wintermute is the first use case. The service, client, filter and action are
+implemented; the supplied MyCount jail remains disabled until its deployment
+log path and trusted client-IP handling are verified. This guide follows the
+pinned BMForge Fail2ban and nftables contracts at specification `0.2.0` from
+BMForge `0.19.1`. See [installation and operation](installation.md) for
+prerequisites, deployment and the IPC protocol.
 
 ## How an event becomes a ban
 
@@ -81,7 +83,7 @@ format. Flush records promptly enough for Fail2ban to observe them.
 
 MyCount owns flood detection: ordinary analytics POSTs, routine access records
 and isolated validation errors must not automatically produce this event.
-For this proposed integration, a `fail2safe` record means the application has
+For this integration, a `fail2safe` record means the application has
 already determined abuse; one matching record is sufficient to request a ban.
 The actual request-rate threshold remains a MyCount requirement.
 
@@ -111,7 +113,7 @@ configuration inside BMCyber. Each application gets its own named jail and
 absolute log path; applications using the same event format share the filter
 and action.
 
-The following is the proposed registration excerpt for
+The shipped registration entry is installed at
 `/etc/fail2ban/jail.d/bmcyber-mycount.local`:
 
 ```ini
@@ -136,7 +138,7 @@ include archived copies of the same events.
 
 `maxretry = 1` requests a ban for one classified abuse event. `findtime = 60`
 sets a 60-second event-counting window; it is not a ban duration. These are
-proposed integration settings, not universal detection thresholds.
+initial integration settings, not universal detection thresholds.
 
 `bantime = 20h` controls Fail2ban's own detection ticket and suppression
 interval. It does not specify the lifetime of the nftables entry. BMCyber
@@ -146,8 +148,8 @@ Review `ignoreip` for the host's administrative and proxy addresses before
 activation. The loopback entries above are only a starting example. Exemptions
 also need to be respected by the service's declared protection policy.
 
-The proposed `bmcyber` action uses the jail name as its source identifier.
-Its installed definition will invoke a fixed application-owned ZMQ executable,
+The `bmcyber` action uses the jail name as its source identifier.
+Its installed definition invokes a fixed application-owned ZMQ executable,
 using the same IPC endpoint as the BMCyber service. It must never pass matched
 log text to a shell or invoke nftables directly. The client passes only the
 validated address and configured source identifier; the source is diagnostic
@@ -158,8 +160,8 @@ Only `actionban` sends an enforcement request. Leave `actionunban`,
 actions. Ticket expiry, manual jail unban and jail shutdown leave the kernel
 block intact. No Fail2ban duration or deadline is sent to BMCyber.
 
-Keep the jail disabled until the filter, action client, service and duration
-integration are implemented and verified. Leave unrelated jails and vendor
+Keep the jail disabled until its deployment log path, exemptions and complete
+action path have been verified on the target environment. Leave unrelated jails and vendor
 configuration files unchanged.
 
 Fail2ban's [jail and filter manual](https://github.com/fail2ban/fail2ban/blob/1.1.0/man/jail.conf.5)
@@ -167,7 +169,7 @@ defines native registration, event counting and action configuration.
 
 ## Matching the event
 
-The proposed shared filter at
+The shared filter at
 `/etc/fail2ban/filter.d/bmcyber-security.conf` is:
 
 ```ini
@@ -190,8 +192,9 @@ the entry automatically; blocked traffic does not reach MyCount and therefore
 does not produce further application detections. New abuse after expiration
 can trigger a new ban.
 
-The base duration must have a central constant default of `20` and an explicit
-configuration entry. The proposed BMCyber policy configuration is:
+The base duration defaults to `DPolicy.BASE_HOURS = 20`; the maximum addition
+defaults to `DPolicy.RANDOM_EXTRA_HOURS = 4`. Both are explicit settings in
+`/opt/prod/bmcyber/conf/bmcyber.json`:
 
 ```json
 {
@@ -202,15 +205,16 @@ configuration entry. The proposed BMCyber policy configuration is:
 }
 ```
 
-This is a proposed schema for `/opt/prod/bmcyber/conf/bmcyber.json`, following
-BMForge's runtime configuration convention; no configuration file or resolver
-has been implemented yet. Constants supply defaults, production JSON supplies
-operator overrides, and the same resolver must serve startup and operational
-tools. Application log records do not carry or choose ban durations.
+Constants supply defaults, production JSON supplies operator overrides, and
+one shared resolver serves startup and operational tools. The complete shipped
+example is `conf/bmcyber.json`. A missing setting inherits its constant default;
+invalid settings fail startup. Application log records do not carry or choose ban durations.
 
 The random addition belongs to BMCyber's policy, not Fail2ban's
 `bantime.rndtime`. Because Fail2ban's unban hook is empty, expiration of its
-20-hour ticket cannot truncate the additional enforcement time.
+20-hour ticket cannot truncate the additional enforcement time. If the service
+base is reduced, also reduce the native ticket interval to no longer than the
+minimum service duration, so detection can resume when enforcement expires.
 
 ### Restarts and reboots
 
@@ -220,9 +224,8 @@ store. An ordinary service restart verifies and reuses active kernel entries
 without clearing them.
 
 A repeated request, including one from a restored Fail2ban ticket, is an
-ordinary ban request. Keeping the existing countdown or applying a fresh full
-duration is allowed by the updated contract; native insertion behavior must
-be tested and documented during implementation. BMCyber does not reconstruct
+ordinary ban request. On tested nftables 1.1.3, repeated native insertion
+refreshes the entry with a fresh full duration. BMCyber does not reconstruct
 an original deadline or track duplicate requests.
 
 A host reboot loses the kernel entries. BMCyber does not restore them.
@@ -235,7 +238,7 @@ an application-owned recovery or replay subsystem.
 Prepare a separate fixture file containing current local timestamps, matching
 IPv4 and IPv6 events, normal access records, other event names, malformed
 addresses and attempts to imitate the marker inside free text. On a host with
-the proposed filter installed, inspect matching and timestamp recognition:
+the filter installed, inspect matching and timestamp recognition:
 
 ```sh
 fail2ban-regex /absolute/path/to/security-event-fixtures.log /etc/fail2ban/filter.d/bmcyber-security.conf
@@ -260,5 +263,8 @@ shutdown send no enforcement request and leave active kernel entries intact.
 Verify the IPC permissions from both an authorized non-root group member and
 an unrelated unprivileged account.
 
-These checks are instructions for the future implementation; they have not
-been executed by creating this document.
+Native filter and end-to-end Fail2ban/IPC/nftables checks have passed in an
+isolated environment, including IPv4/IPv6 enforcement and expiry and actual
+IPC group permissions. The target installation on wintermute still requires
+its log/proxy configuration and systemd-managed lifecycle verification. See
+the [verification record](installation.md#verification).

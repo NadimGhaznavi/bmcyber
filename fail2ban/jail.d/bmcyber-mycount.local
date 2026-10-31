@@ -1,0 +1,11 @@
+[bmcyber-mycount]
+enabled = false
+filter = bmcyber-security
+backend = auto
+logpath = /var/log/mycount/mycount.log
+usedns = no
+findtime = 60
+maxretry = 1
+bantime = 20h
+ignoreip = 127.0.0.0/8 ::1
+action = bmcyber[source=bmcyber-mycount]

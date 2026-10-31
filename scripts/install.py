@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source-file deployment baseline; configure project-specific work before use."""
+"""Install, upgrade or uninstall the BMCyber single-host service."""
 
 import argparse
 import importlib.util
@@ -8,15 +8,20 @@ import os
 from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ServiceInstallation import ServiceInstallation
+from bmcyber.interface.Nftables import NftablesError
 
 
 BMFORGE_COMPONENT = {"id": "bmforge.installation", "spec_version": "0.1.1"}
 
 PROJECT_NAME = "BMCyber"
-# Turn this on only after implementing the project's full deployment contract.
-DEPLOYMENT_READY = False
-COPY_TREES = ("bmcyber", "scripts")
-COPY_FILES = ()
+DEPLOYMENT_READY = True
+COPY_TREES = ("bmcyber", "scripts", "systemd", "fail2ban")
+COPY_FILES = ("requirements.txt",)
 MANIFEST = ".installation-manifest.json"
 VERSION_MARKER = ".deployment-version"
 
@@ -39,7 +44,7 @@ def reject_symlinks(path: Path) -> None:
 
 
 class Installation:
-    def __init__(self, checkout: Path, *, destination: Path | None = None) -> None:
+    def __init__(self, checkout: Path, *, destination: Path | None = None, host=None) -> None:
         self.checkout = checkout.resolve()
         self.version_file = f"{PROJECT_NAME.lower()}/constants/D{PROJECT_NAME}.py"
         spec = importlib.util.spec_from_file_location('cmdb_checker', self.checkout / 'scripts/check-cmdb.py')
@@ -52,6 +57,8 @@ class Installation:
         if (self.checkout.is_relative_to(self.destination)
                 or self.destination.is_relative_to(self.checkout)):
             raise ValueError("Run deployment from a separate checkout outside the installation")
+
+        self.host = host or ServiceInstallation(self.checkout, self.destination)
 
     def installed_files(self) -> list[str] | None:
         manifest = self.destination / MANIFEST
@@ -112,6 +119,7 @@ class Installation:
             for name in set(current) - set(previous):
                 if (self.destination / name).exists():
                     raise ValueError(f"New managed file would overwrite an unowned file: {name}")
+        self.host.preflight(action)
         return previous, current
 
     def atomic_write(self, path: Path, content: bytes, mode: int = 0o644) -> None:
@@ -148,6 +156,7 @@ class Installation:
             print(f"{action}: checks passed for {self.destination}; no files changed.")
             return
         if action == 'uninstall':
+            self.host.uninstall()
             if previous is not None:
                 self.remove_files(previous)
                 (self.destination / VERSION_MARKER).unlink(missing_ok=True)
@@ -161,6 +170,7 @@ class Installation:
                     self.atomic_write(self.destination / MANIFEST, (json.dumps(removed, indent=2) + '\n').encode())
             print(f"Removed managed {PROJECT_NAME} files; unowned files and persistent data are retained.")
             return
+        self.host.stop()
         self.destination.mkdir(parents=True, exist_ok=True)
         self.destination.chmod(0o755)
         # Keep ownership information for partial copies so a retry or uninstall can
@@ -175,6 +185,9 @@ class Installation:
             self.atomic_write(self.destination / name, source.read_bytes(), mode)
         self.remove_files(sorted(set(previous or ()) - set(names)))
         self.atomic_write(self.destination / self.version_file, (self.checkout / self.version_file).read_bytes())
+        self.host.configure()
+        self.host.start()
+        self.host.health()
         ownership['files'] = names
         self.atomic_write(self.destination / MANIFEST, (json.dumps(ownership, indent=2) + '\n').encode())
         self.atomic_write(self.destination / VERSION_MARKER, (self.metadata['VERSION'] + '\n').encode())
@@ -190,8 +203,8 @@ def main() -> int:
         parser.error('Run deployment as root; --check and --help do not require root')
     try:
         Installation(Path(__file__).resolve().parents[1]).apply(args.action, check=args.check)
-    except (OSError, ValueError, TypeError, SyntaxError) as error:
-        parser.exit(1, f"Deployment failed: {error}\n")
+    except (OSError, ValueError, TypeError, SyntaxError, NftablesError, subprocess.SubprocessError) as error:
+        parser.exit(1, f"Deployment failed: {error} {getattr(error, 'stderr', '')}\n")
     return 0
 
 

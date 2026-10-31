@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Start or stop the BMCyber integration in an explicit order."""
+import argparse
+from pathlib import Path
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from bmcyber.interface.Configuration import Configuration
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('action', choices=('start', 'stop', 'restart'))
+args = parser.parse_args()
+if args.action in ('start', 'restart'):
+    Configuration.load()
+
+
+def run(*arguments):
+    subprocess.run(list(arguments), check=True, timeout=30)
+
+
+if args.action in ('start', 'restart'):
+    run('fail2ban-client', '-t')
+if args.action in ('stop', 'restart'):
+    # A disabled/absent jail is normal; confirm the daemon is reachable first.
+    status = subprocess.run(['fail2ban-client', 'status', 'bmcyber-mycount'], capture_output=True, timeout=30)
+    if status.returncode == 0:
+        run('fail2ban-client', 'stop', 'bmcyber-mycount')
+    else:
+        run('fail2ban-client', 'ping')
+    run('systemctl', 'stop', 'bmcyber.service')
+if args.action in ('start', 'restart'):
+    run('systemctl', 'start', 'bmcyber.service')
+    run('systemctl', 'start', 'fail2ban.service')
+    run('fail2ban-client', 'reload', '--if-exists', 'bmcyber-mycount')

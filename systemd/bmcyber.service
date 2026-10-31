@@ -1,0 +1,27 @@
+[Unit]
+Description=BMCyber local timed IP blocking
+After=network.target nftables.service
+
+[Service]
+Type=exec
+User=root
+Group=bmcyber
+WorkingDirectory=/opt/prod/bmcyber
+ExecStart=/usr/bin/python3 -B -m bmcyber
+ExecStartPost=/opt/prod/bmcyber/scripts/bmcyber-client health
+RuntimeDirectory=bmcyber
+RuntimeDirectoryMode=0750
+UMask=0117
+TimeoutStartSec=15
+TimeoutStopSec=10
+KillSignal=SIGTERM
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+ReadWritePaths=/run/bmcyber
+
+[Install]
+WantedBy=multi-user.target
