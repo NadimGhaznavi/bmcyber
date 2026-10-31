@@ -1,0 +1,29 @@
+{
+  "branch": "main",
+  "manager_sha256": "fb600e9b7ff6187900d4621f98e6442ab8773411557de383deae59719e180613",
+  "repository": "/opt/dev/bmforge",
+  "schema": 1,
+  "skills": {
+    "bmforge-constants": {
+      "sha256": "f1bae59f70ce7c175e4d82d3cd196b20a76951630ff96b47154e8cf506be1d9b",
+      "source_commit": "0002bd59ee8ee6021fc5572148a6b6a3baad489e",
+      "spec_version": "0.1.0"
+    },
+    "bmforge-installation": {
+      "sha256": "4968c4ab02b1347a5b956cb97a974931815ccc9e1df50ead169422b3181e6378",
+      "source_commit": "0002bd59ee8ee6021fc5572148a6b6a3baad489e",
+      "spec_version": "0.1.1"
+    },
+    "bmforge-localization": {
+      "sha256": "c9d5a10317c29ae87dde250967b4183902d874220df283ad837e65b98f310e7b",
+      "source_commit": "0002bd59ee8ee6021fc5572148a6b6a3baad489e",
+      "spec_version": "0.1.0"
+    },
+    "bmforge-project": {
+      "sha256": "8d494ed7c46170e3b2debba2291cf8604c389e5e51c0eb0f83f50a153ce12b7d",
+      "source_commit": "0002bd59ee8ee6021fc5572148a6b6a3baad489e",
+      "spec_version": "0.1.0"
+    }
+  },
+  "source_commit": "0002bd59ee8ee6021fc5572148a6b6a3baad489e"
+}
