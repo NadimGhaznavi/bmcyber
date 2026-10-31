@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Summary
+
+Refresh the pinned BMForge engineering guidance and manager to the cached BMForge 0.20.0 revision.
+
+### Changed
+
+- Update all seven installed skill bundles and their integrity locks to cached BMForge revision `1f98e6dc89ba`; component specification versions remain unchanged.
+- Refresh the shared component catalogue and manager with support for the optional GitHub Pages skill; no additional skill or application dependency is installed.
+
 ## [0.1.0] - 2026-10-31 @ 06:54
 
 This release is named for the element **Nobelium (No)**. Nobelium was named for Alfred Nobel, the inventor whose fortune established the Nobel Prizes.

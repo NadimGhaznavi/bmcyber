@@ -81,6 +81,7 @@ SKILLS = {
     "bmforge-timeline": ("pages/component-timeline.md", ()),
     "bmforge-nftables": ("pages/component-nftables.md", ()),
     "bmforge-fail2ban": ("pages/component-fail2ban.md", ()),
+    "bmforge-github-pages": ("pages/jekyll-setup.md", ()),
     "bmforge-rca": (None, ()),
 }
 BASE_SKILLS = ("bmforge-project", "bmforge-constants", "bmforge-localization", "bmforge-installation")
@@ -114,6 +115,15 @@ RELEASE_TEMPLATES = {
 RELEASE_GUIDES = ("pages/release-setup.md", "pages/creating-a-release.md",
                   "pages/changelog-maintenance.md")
 INSTALLATION_GUIDES = ("pages/installation-scripts.md", "pages/cmdb-compliance.md")
+GITHUB_PAGES_ASSETS = {
+    "_config.yml": "templates/_config.yml",
+    "jekyll-gh-pages.yml": "templates/jekyll-gh-pages.yml",
+    "index.md": "templates/github-pages/index.md",
+    "README.md": "templates/github-pages/README.md",
+    "page.md": "templates/github-pages/page.md",
+}
+GITHUB_PAGES_GUIDES = ("pages/github-pages-publishing.md",
+                      "pages/multilingual-documentation.md")
 LOCK = Path(".agents/bmforge/lock.json")
 MANAGER = Path(".agents/bmforge/manage.py")
 DEFAULT_SOURCE_CACHE = Path.home() / ".cache/bmforge-upstream"
@@ -191,6 +201,12 @@ def bundle(source, name):
     if name == "bmforge-installation":
         for guide in INSTALLATION_GUIDES:
             files["references/" + Path(guide).name] = guide
+    if name == "bmforge-github-pages":
+        for destination, original in GITHUB_PAGES_ASSETS.items():
+            files["assets/" + destination] = original
+        for guide in GITHUB_PAGES_GUIDES:
+            files["references/" + Path(guide).name] = guide
+        files["agents/openai.yaml"] = "skills/bmforge-github-pages/agents/openai.yaml"
     if name in ("bmforge-http", "bmforge-zmq", "bmforge-db-server"):
         files["references/health-checks.md"] = HEALTH
     for snapshot in snapshots:
