@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-31 @ 08:58
+
+This release is named for the element **Seaborgium  (Sg)**. Seaborgium was named after Glenn Seaborg while he was still alive, an unusual honor for an element discoverer.
+
+### Summary
+
+Make BMCyber's GitHub Pages documentation available in Ukrainian using R3el's existing locale and shared language selector.
+
+### Added
+
+- Translate the homepage, installation and operation guide, and application security-log integration guide using `lang: uk`, `locale: uk` and paired translation keys.
+- Add `/uk/` and `/uk/pages/.../` URLs with localized navigation, baseurl-aware links and stable section anchors; retain the English-only changelog and unchanged executable examples.
+
 ## [0.2.0] - 2026-10-31 @ 08:30
 
 ### Summary
