@@ -1,0 +1,101 @@
+# BMFORGE_COMPONENT: bmforge.github-pages; spec_version: 0.1.0
+# Shared theme and author settings follow BMDynIP; project values belong to BMCyber.
+remote_theme: "NadimGhaznavi/minimal-mistakes"
+minimal_mistakes_skin: "dark"
+
+title: "BMCyber"
+title_separator: "-"
+name: "BMCyber"
+description: "Host-local timed IP blocking through Fail2ban, local IPC and nftables."
+locale: "en-US"
+url: "https://bmcyber.osoyalce.com"
+baseurl: ""
+repository: "NadimGhaznavi/bmcyber"
+logo: "/pages/images/bmcyber.png"
+
+mycount:
+  endpoint: "https://count.osoyalce.com/count"
+  site: "bmcyber"
+multilingual:
+  enabled: true
+  default_lang: en
+
+author:
+  name: "Nadim-Daniel Ghaznavi"
+  bio: "Creator"
+  location: "Hamilton, ON"
+  email: "nghaznavi@gmail.com"
+  links:
+    - label: "GitHub"
+      icon: "fab fa-fw fa-github"
+      url: "https://github.com/NadimGhaznavi"
+    - label: "My Website"
+      icon: "fas fa-fw fa-link"
+      url: "https://www.osoyalce.com/"
+footer:
+  since: "2026"
+
+include:
+  - pages
+# Keep application source, configuration and tooling out of the documentation site.
+exclude:
+  - AGENTS.md
+  - README.md
+  - LICENSE
+  - scripts
+  - tests
+  - templates
+  - components
+  - skills
+  - vendor
+  - node_modules
+  - Gemfile
+  - Gemfile.lock
+  - pyproject.toml
+  - package.json
+  - package-lock.json
+  - bmcyber
+  - conf
+  - fail2ban
+  - systemd
+  - requirements.txt
+  - .agents
+  - .github
+  - .venv
+  - .pytest_cache
+  - __pycache__
+encoding: "utf-8"
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  hard_wrap: false
+  auto_ids: true
+  toc_levels: 1..6
+sass:
+  style: compressed
+plugins:
+  - jekyll-paginate
+  - jekyll-sitemap
+  - jekyll-gist
+  - jekyll-feed
+  - jekyll-include-cache
+
+defaults:
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: single
+      classes: wide
+      author_profile: true
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: single
+      classes: wide
+      author_profile: true
+      read_time: false
+      share: true
+      related: true

@@ -1,4 +1,10 @@
-# Installation and operation
+---
+title: "Installation and operation"
+lang: en
+locale: en-US
+language_name: English
+translation_key: bmcyber-installation
+---
 
 BMCyber is a single-host root systemd service plus a local Fail2ban action
 client. MyCount's flood detector remains in MyCount. SnakeWeb integration is
@@ -208,3 +214,7 @@ An actual systemd-managed installation on wintermute has not been performed.
 Before deployment, verify its package versions, actual MyCount log path,
 trusted proxy/client-IP configuration, administrative exemptions and complete
 install/upgrade/uninstall behavior on a disposable host with systemd.
+
+---
+
+[Documentation index]({{ site.baseurl }}{% link index.md %})

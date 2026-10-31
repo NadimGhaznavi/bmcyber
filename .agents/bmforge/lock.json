@@ -14,6 +14,11 @@
       "source_commit": "1f98e6dc89ba6e9a229142b4ae180fe83259e18d",
       "spec_version": "0.2.0"
     },
+    "bmforge-github-pages": {
+      "sha256": "693a1ae46cf0b0f477d30e481bd40e79da7b54d4d353b5a2e65c73176e1c1960",
+      "source_commit": "1f98e6dc89ba6e9a229142b4ae180fe83259e18d",
+      "spec_version": "0.1.0"
+    },
     "bmforge-installation": {
       "sha256": "86ffc1724d027ddd1150a2666325bc4d7778559922cbaae2266ad1b09c6a23eb",
       "source_commit": "1f98e6dc89ba6e9a229142b4ae180fe83259e18d",
