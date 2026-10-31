@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Summary
+
+Refresh the pinned BMForge installation guidance and starter installer template with support for an application-owned production Python environment.
+
+### Changed
+
+- Update `bmforge-installation` from `0.1.1` to `0.1.2` and refresh the installer template bundled with `bmforge-project` at cached BMForge revision `f2fe90fd395e`; record both bundle fingerprints and revisions in the lock file.
+- Include production virtual-environment ownership, dependency installation and deployed-path guidance in the pinned bundles. BMCyber's application installer and runtime are unchanged.
+
 ## [0.3.0] - 2026-10-31 @ 08:58
 
 This release is named for the element **Seaborgium  (Sg)**. Seaborgium was named after Glenn Seaborg while he was still alive, an unusual honor for an element discoverer.

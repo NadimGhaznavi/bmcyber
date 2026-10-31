@@ -4,7 +4,7 @@ lang: en
 locale: en-US
 language_name: English
 component_id: "bmforge.installation"
-spec_version: "0.1.1"
+spec_version: "0.1.2"
 spec_status: "draft"
 translation_key: bmforge-component-installation
 ---
@@ -30,6 +30,7 @@ Keep the existing source-file `templates/project/scripts/install.py` and its thi
 | stdlib | `pathlib` | Paths and source/target ownership checks |
 | stdlib | `shutil` | Copying and filesystem management |
 | stdlib | `tempfile` | Atomic replacement of managed installation files |
+| stdlib | `subprocess` | Create and synchronize the application-owned production Python environment |
 
 For an explicitly required role-aware client/server installer, **approved optional stdlib modules** are `grp`, `ipaddress`, `re`, `secrets`, `subprocess`, `sys`, `time`, `tomllib`, `urllib.error` and `urllib.request`, as demonstrated in DevLog's pinned `deploy.py`. Import only those needed for the chosen role and lifecycle. No Flask, Click/Typer, Fabric, Ansible, new deployment daemon or third-party installer framework may be introduced without user approval and a specification revision. Installed application packages and their dependencies follow the selected application component contracts, not the installer module allowlist.
 
@@ -44,6 +45,14 @@ For an explicitly required role-aware client/server installer, **approved option
 - The application-owned installation's marker is authoritative for what was *successfully installed*, not what is currently checked out in Git, nor what was merely built. Uninstall removes active managed files and the successful-version marker; it preserves persistent/user data and a safe ownership tombstone when retained data prevents removing the directory.
 
 For the smallest library-only project, use the existing installer with a focused source list, **not a second installer framework**. The `COPY_TREES` and `COPY_FILES` configuration can install just the canonical constants/marker plus a package artifact if the application's actual packaging places executable code elsewhere. Validate that the named artifact is installed and usable before writing the success marker. Avoid pretending the metadata marker itself installed an absent package.
+
+## Python runtime isolation
+
+For a Python application with third-party requirements, declare `REQUIREMENTS_FILE = "requirements.txt"` in the existing installation helper. The declared requirements file is part of the deployed payload. Installation creates `<BASE_DIR>/.venv` using the host's `python3 -m venv` and installs packages with `<BASE_DIR>/.venv/bin/python -m pip install -r <BASE_DIR>/requirements.txt`. Upgrade reuses that environment and synchronizes declared packages before publishing the successful-version marker. An application requiring strict removal of obsolete dependencies must implement and test that synchronization as part of its project-specific lifecycle.
+
+The development checkout (typically `/opt/dev/<slug>`) is **only an input to deployment**. Production services and installed launchers must reference the deployed code and `<BASE_DIR>/.venv/bin/python`, never files, interpreters, editable installs or packages under `/opt/dev`. Installing dependencies into a development venv or global site-packages is not an acceptable production deployment. `--check` must verify the manifest and available Python interpreter without creating the environment or installing packages. If Python venv/ensurepip support is unavailable, the actual installation must fail without advancing the successful-version marker. Check and preserve local configuration and user data on upgrade.
+
+Keep `REQUIREMENTS_FILE = None` for projects that do not need a Python package environment. Exclude `.venv` from Git and copied source trees. The installer owns the deployed venv only when it created/managed it, and uninstall may remove that owned environment; it must not remove an unrelated directory or user data. Application-specific checks must prove installed imports and service startup work with `/opt/dev` unavailable.
 
 ## Entry points and installation roles
 
@@ -72,7 +81,7 @@ Server-only and library-only applications continue using ordinary `install.sh`, 
 3. Configure the application-owned payload, `BASE_DIR`, role marker if applicable, dependency groups and the preserved state paths. Only then enable readiness and implement **all three** lifecycle operations and any selected `install-server.sh`.
 4. Add tests for each role and each operation in disposable directories. Simulate failure after staging and before readiness, and check the marker/version and rollback boundary. For any real systemd/database changes, test in an explicitly disposable environment.
 5. Before the **first release**, verify that deployment is truly enabled, source files are committed, all mandatory entry points are executable, `--help` works without privilege, and normal install/upgrade/uninstall plus `--check` semantics are tested. `new-release.sh` only checks some preflight mechanics: its success does **not** prove the installer was implemented.
-6. Apply the literal `BMFORGE_COMPONENT = {"id": "bmforge.installation", "spec_version": "0.1.1"}` marker in the owning installation Python module. A marker alone does not certify readiness.
+6. Apply the literal `BMFORGE_COMPONENT = {"id": "bmforge.installation", "spec_version": "0.1.2"}` marker in the owning installation Python module. A marker alone does not certify readiness.
 
 ## Frozen reference examples
 
@@ -91,7 +100,8 @@ Server-only and library-only applications continue using ordinary `install.sh`, 
 6. Upgrades retain client/server roles and record the new version only after verification. Failures do not falsely report success; an application with rolling activation verifies its rollback or recovery contract.
 7. Uninstall removes managed files, units and launchers for each supported role while retaining data and configuration, including repeat-uninstall and reinstall cases.
 8. Installation metadata and `pyproject.toml` package version (when present) match the literal `D<Name>.VERSION`. The standard `new-release.sh` updates both together and rejects drift before merging. Successful installation markers never claim an uninstalled or failed version.
-9. No alternate installer framework, direct app-to-app imports or new dependencies were introduced without explicit approval. Tested installation and release processes remain separate.
+9. A Python service uses its deployed virtual environment and remains runnable when `/opt/dev` is absent; install, upgrade, uninstall and `--check` cover the environment lifecycle. Library-only installations without dependencies do not create a venv.
+10. No alternate installer framework, direct app-to-app imports or new dependencies were introduced without explicit approval. Tested installation and release processes remain separate.
 
 ---
 

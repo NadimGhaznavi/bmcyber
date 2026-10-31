@@ -7,16 +7,21 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import subprocess
 import tempfile
 
 
-BMFORGE_COMPONENT = {"id": "bmforge.installation", "spec_version": "0.1.1"}
+BMFORGE_COMPONENT = {"id": "bmforge.installation", "spec_version": "0.1.2"}
 
 PROJECT_NAME = "__PROJECT_NAME__"
 # Turn this on only after implementing the project's full deployment contract.
 DEPLOYMENT_READY = False
 COPY_TREES = ("__PROJECT_SLUG__", "scripts")
 COPY_FILES = ()
+# Set to "requirements.txt" for Python applications requiring a production venv.
+# Keep None for applications without Python package dependencies.
+REQUIREMENTS_FILE = None
+VENV_DIR = ".venv"
 MANIFEST = ".installation-manifest.json"
 VERSION_MARKER = ".deployment-version"
 
@@ -77,13 +82,15 @@ class Installation:
 
     def source_files(self) -> list[str]:
         names = {relative_path(name) for name in COPY_FILES}
+        if REQUIREMENTS_FILE is not None:
+            names.add(relative_path(REQUIREMENTS_FILE))
         for name in COPY_TREES:
             folder = self.checkout / relative_path(name)
             reject_symlinks(folder)
             if not folder.is_dir():
                 raise ValueError(f"Missing source directory: {name}")
             for path in folder.rglob('*'):
-                if '__pycache__' in path.parts or path.suffix in ('.pyc', '.pyo'):
+                if '__pycache__' in path.parts or VENV_DIR in path.parts or path.suffix in ('.pyc', '.pyo'):
                     continue
                 reject_symlinks(path)
                 if path.is_file():
@@ -112,6 +119,16 @@ class Installation:
             for name in set(current) - set(previous):
                 if (self.destination / name).exists():
                     raise ValueError(f"New managed file would overwrite an unowned file: {name}")
+        if REQUIREMENTS_FILE is not None and action != 'uninstall':
+            python = shutil.which('python3')
+            if python is None:
+                raise ValueError('python3 is required to create the production virtual environment')
+            if not (self.checkout / REQUIREMENTS_FILE).is_file():
+                raise ValueError(f'Missing dependency manifest: {REQUIREMENTS_FILE}')
+            venv = self.destination / VENV_DIR
+            reject_symlinks(venv)
+            if venv.exists() and not venv.is_dir():
+                raise ValueError(f'Virtual environment path is not a directory: {venv}')
         return previous, current
 
     def atomic_write(self, path: Path, content: bytes, mode: int = 0o644) -> None:
@@ -150,6 +167,10 @@ class Installation:
         if action == 'uninstall':
             if previous is not None:
                 self.remove_files(previous)
+                venv = self.destination / VENV_DIR
+                reject_symlinks(venv)
+                if venv.is_dir() and json.loads((self.destination / MANIFEST).read_text()).get('venv') is True:
+                    shutil.rmtree(venv)
                 (self.destination / VERSION_MARKER).unlink(missing_ok=True)
                 (self.destination / MANIFEST).unlink()
                 try:
@@ -166,13 +187,27 @@ class Installation:
         # Keep ownership information for partial copies so a retry or uninstall can
         # account for new files. Advance the successful-version marker only last.
         owned = sorted(set(previous or ()) | set(names))
-        ownership = {'project': PROJECT_NAME, 'files': owned}
+        previous_venv = False
+        if previous is not None:
+            previous_venv = json.loads((self.destination / MANIFEST).read_text()).get('venv') is True
+        if REQUIREMENTS_FILE is not None and (self.destination / VENV_DIR).exists() and not previous_venv and previous is not None:
+            raise ValueError('Refusing to take ownership of an existing unowned virtual environment')
+        ownership = {'project': PROJECT_NAME, 'files': owned,
+                     'venv': REQUIREMENTS_FILE is not None or previous_venv}
         self.atomic_write(self.destination / MANIFEST, (json.dumps(ownership, indent=2) + '\n').encode())
         # Existing managed files may change before success; this is not rollback.
         for name in [item for item in names if item != self.version_file]:
             source = self.checkout / name
             mode = 0o755 if source.stat().st_mode & 0o111 else 0o644
             self.atomic_write(self.destination / name, source.read_bytes(), mode)
+        if REQUIREMENTS_FILE is not None:
+            venv = self.destination / VENV_DIR
+            if not (venv / 'bin/python').is_file():
+                if venv.exists():
+                    raise ValueError('Existing virtual environment is missing bin/python; inspect before replacing')
+                subprocess.run([shutil.which('python3'), '-m', 'venv', str(venv)], check=True)
+            subprocess.run([str(venv / 'bin/python'), '-m', 'pip', 'install',
+                            '-r', str(self.destination / REQUIREMENTS_FILE)], check=True)
         self.remove_files(sorted(set(previous or ()) - set(names)))
         self.atomic_write(self.destination / self.version_file, (self.checkout / self.version_file).read_bytes())
         ownership['files'] = names
@@ -190,7 +225,7 @@ def main() -> int:
         parser.error('Run deployment as root; --check and --help do not require root')
     try:
         Installation(Path(__file__).resolve().parents[1]).apply(args.action, check=args.check)
-    except (OSError, ValueError, TypeError, SyntaxError) as error:
+    except (OSError, ValueError, TypeError, SyntaxError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Deployment failed: {error}\n")
     return 0
 
