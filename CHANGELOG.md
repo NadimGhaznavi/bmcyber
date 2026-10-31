@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-31 @ 06:54
+
 This release is named for the element **Nobelium (No)**. Nobelium was named for Alfred Nobel, the inventor whose fortune established the Nobel Prizes.
 
 ### Summary
