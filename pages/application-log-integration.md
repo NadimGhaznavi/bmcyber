@@ -3,7 +3,8 @@
 This guide defines the proposed application integration for BMCyber. MyCount
 on wintermute is the first use case. The service, Fail2ban filter and action
 described here are not implemented yet; configuration examples are for review,
-not deployment.
+not deployment. This guide follows the pinned BMForge Fail2ban and nftables
+contracts at specification `0.2.0` from BMForge `0.19.1`.
 
 ## How an event becomes a ban
 
@@ -33,6 +34,21 @@ endpoint. SnakeWeb's backend on neuromancer is a later integration.
 
 Applications need no ZMQ client, firewall privileges or direct connection to
 BMCyber. They only need to emit the security record below.
+
+## Local IPC access
+
+The BMCyber systemd service runs as root. Its runtime directory is
+`/run/bmcyber/`, owned by `root:bmcyber` with mode `0750`. The named filesystem
+IPC socket is owned by `root:bmcyber` with mode `0660`. Only root can create
+or remove entries in the directory; members of the `bmcyber` Linux group can
+connect to the socket. Apply restrictive permissions from socket creation,
+not after a period of public access.
+
+Any non-root account running the ZMQ client must belong to the `bmcyber`
+group. For the MyCount integration, this is the account running Fail2ban's
+action client. MyCount itself only needs to write its log. systemd recreates
+the transient runtime directory after reboot; clients only connect and never
+create the directory or remove socket files.
 
 ## What the application must log
 
@@ -107,6 +123,7 @@ logpath = /var/log/mycount/mycount.log
 usedns = no
 findtime = 60
 maxretry = 1
+bantime = 20h
 ignoreip = 127.0.0.0/8 ::1
 action = bmcyber[source=bmcyber-mycount]
 ```
@@ -121,6 +138,10 @@ include archived copies of the same events.
 sets a 60-second event-counting window; it is not a ban duration. These are
 proposed integration settings, not universal detection thresholds.
 
+`bantime = 20h` controls Fail2ban's own detection ticket and suppression
+interval. It does not specify the lifetime of the nftables entry. BMCyber
+chooses the enforcement duration using the policy below.
+
 Review `ignoreip` for the host's administrative and proxy addresses before
 activation. The loopback entries above are only a starting example. Exemptions
 also need to be respected by the service's declared protection policy.
@@ -128,14 +149,18 @@ also need to be respected by the service's declared protection policy.
 The proposed `bmcyber` action uses the jail name as its source identifier.
 Its installed definition will invoke a fixed application-owned ZMQ executable,
 using the same IPC endpoint as the BMCyber service. It must never pass matched
-log text to a shell or invoke nftables directly. An unban from one source must
-not release another source's active ban for the same IP.
+log text to a shell or invoke nftables directly. The client passes only the
+validated address and configured source identifier; the source is diagnostic
+metadata, not an independently tracked claim on the ban.
+
+Only `actionban` sends an enforcement request. Leave `actionunban`,
+`actionstop` and `actionflush` empty, without inheriting vendor firewall
+actions. Ticket expiry, manual jail unban and jail shutdown leave the kernel
+block intact. No Fail2ban duration or deadline is sent to BMCyber.
 
 Keep the jail disabled until the filter, action client, service and duration
-integration are implemented and verified. This excerpt deliberately omits
-`bantime`: the final jail/action timing must implement the policy below rather
-than silently inherit Fail2ban's default duration. Leave unrelated jails and
-vendor configuration files unchanged.
+integration are implemented and verified. Leave unrelated jails and vendor
+configuration files unchanged.
 
 Fail2ban's [jail and filter manual](https://github.com/fail2ban/fail2ban/blob/1.1.0/man/jail.conf.5)
 defines native registration, event counting and action configuration.
@@ -159,8 +184,8 @@ records containing additional free text.
 
 ## Ban duration
 
-Every new ban lasts **20 hours plus a random additional duration from 0 to
-4 hours**. Select the additional duration once for that ban. nftables expires
+For a new entry, BMCyber selects **20 hours plus a random additional duration
+from 0 to 4 hours**. nftables expires
 the entry automatically; blocked traffic does not reach MyCount and therefore
 does not produce further application detections. New abuse after expiration
 can trigger a new ban.
@@ -168,23 +193,42 @@ can trigger a new ban.
 The base duration must have a central constant default of `20` and an explicit
 configuration entry. The proposed BMCyber policy configuration is:
 
-```ini
-[ban]
-base_hours = 20
-random_extra_hours = 4
+```json
+{
+  "ban": {
+    "base_hours": 20,
+    "random_extra_hours": 4
+  }
+}
 ```
 
-This is a proposed schema, not an existing configuration file. Its installation
-path and constant names will be settled during implementation. Application log
-records do not carry or choose ban durations.
+This is a proposed schema for `/opt/prod/bmcyber/conf/bmcyber.json`, following
+BMForge's runtime configuration convention; no configuration file or resolver
+has been implemented yet. Constants supply defaults, production JSON supplies
+operator overrides, and the same resolver must serve startup and operational
+tools. Application log records do not carry or choose ban durations.
 
-The final Fail2ban action and BMCyber service must agree on the effective
-expiry. A nominal 20-hour Fail2ban unban must not truncate the random addition,
-and reloading or restoring a ticket must not sample a new duration or restart
-the full interval. Do not assume that setting Fail2ban's `bantime.rndtime`
-alone implements this policy: its relationship with incremental bans must be
-checked against the deployed version. Duration coordination is an implementation
-acceptance requirement, not resolved by the registration excerpt above.
+The random addition belongs to BMCyber's policy, not Fail2ban's
+`bantime.rndtime`. Because Fail2ban's unban hook is empty, expiration of its
+20-hour ticket cannot truncate the additional enforcement time.
+
+### Restarts and reboots
+
+The kernel's timed entry is the sole live enforcement state. BMCyber keeps no
+ban map, per-source claims, saved deadlines, expiry timers or persistent ban
+store. An ordinary service restart verifies and reuses active kernel entries
+without clearing them.
+
+A repeated request, including one from a restored Fail2ban ticket, is an
+ordinary ban request. Keeping the existing countdown or applying a fresh full
+duration is allowed by the updated contract; native insertion behavior must
+be tested and documented during implementation. BMCyber does not reconstruct
+an original deadline or track duplicate requests.
+
+A host reboot loses the kernel entries. BMCyber does not restore them.
+Subsequent requests can create new blocks; a restored native Fail2ban ticket
+is also such a request and may start a fresh duration. This does not require
+an application-owned recovery or replay subsystem.
 
 ## Verify before enabling the jail
 
@@ -210,7 +254,11 @@ Then verify the complete path in an isolated environment: one event causes an
 acknowledged IPC request and a timed IP ban, exempt addresses remain reachable,
 and expiry restores traffic. Verify an unavailable service or lost reply
 produces a visible action failure, not a false success. Check rotation,
-restart and the 20–24-hour expiry contract before production activation.
+service restart, repeated insertion and the 20–24-hour policy before production
+activation. Verify that Fail2ban ticket expiry, manual jail unban and jail
+shutdown send no enforcement request and leave active kernel entries intact.
+Verify the IPC permissions from both an authorized non-root group member and
+an unrelated unprivileged account.
 
 These checks are instructions for the future implementation; they have not
 been executed by creating this document.
