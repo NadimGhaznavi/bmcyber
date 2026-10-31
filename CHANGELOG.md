@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Summary
+
+Refresh the pinned BMForge engineering guidance and prepare BMCyber documentation for GitHub Pages using BMForge's canonical scaffold, with BMDynIP as the project reference.
+
+### Added
+
+- Install the pinned BMForge GitHub Pages skill `0.1.0` at cached revision `1f98e6dc89ba`.
+- Add the shared dark theme configuration and main-only GitHub Pages workflow for `bmcyber.osoyalce.com`, reusing BMDynIP's author settings and BMCyber's existing logo.
+
+### Changed
+
+- Update all seven installed skill bundles and their integrity locks to cached BMForge revision `1f98e6dc89ba`; component specification versions remain unchanged.
+- Refresh the shared component catalogue and manager with support for the optional GitHub Pages skill; application dependencies remain unchanged.
+- Move the detailed README overview to the documentation homepage, retain a short website-linked README, and add English metadata and baseurl-aware navigation to both existing guides.
+- Ignore generated Jekyll output and exclude application source, configuration and tooling from the documentation site.
+
 ## [0.1.0] - 2026-10-31 @ 06:54
 
 This release is named for the element **Nobelium (No)**. Nobelium was named for Alfred Nobel, the inventor whose fortune established the Nobel Prizes.
