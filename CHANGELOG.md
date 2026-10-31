@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-31 @ 08:58
+
 This release is named for the element **Seaborgium  (Sg)**. Seaborgium was named after Glenn Seaborg while he was still alive, an unusual honor for an element discoverer.
 
 ### Summary
