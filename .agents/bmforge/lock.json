@@ -20,9 +20,9 @@
       "spec_version": "0.1.0"
     },
     "bmforge-installation": {
-      "sha256": "86ffc1724d027ddd1150a2666325bc4d7778559922cbaae2266ad1b09c6a23eb",
-      "source_commit": "1f98e6dc89ba6e9a229142b4ae180fe83259e18d",
-      "spec_version": "0.1.1"
+      "sha256": "770361b59f32a527047e780fb912be95c34feecb6b8b3e5d9a3db34f81700b35",
+      "source_commit": "f2fe90fd395eaa4afee243e061d44fb33247fa5c",
+      "spec_version": "0.1.2"
     },
     "bmforge-localization": {
       "sha256": "0d88a8984cae3e11398d109af4e45308572a1918f11a31b2f74648161b0b14d1",
@@ -35,8 +35,8 @@
       "spec_version": "0.2.0"
     },
     "bmforge-project": {
-      "sha256": "4ee4b7ca63a0801957e7703ab0359ac5772adb9811ea1ebc56f29bc50407ebdd",
-      "source_commit": "1f98e6dc89ba6e9a229142b4ae180fe83259e18d",
+      "sha256": "748ac1160a3ee66cfa26a2b8c254b20c70ed513b444240ca583fd819d1bb2831",
+      "source_commit": "f2fe90fd395eaa4afee243e061d44fb33247fa5c",
       "spec_version": "0.1.0"
     },
     "bmforge-zmq": {
