@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+This release is named for the element **Nobelium (No)**. Nobelium was named for Alfred Nobel, the inventor whose fortune established the Nobel Prizes.
+
 ### Summary
 
 Implement host-local timed IP blocking through a root IPC service, a Fail2ban action client and nftables. BMCyber selects the default 20–24-hour duration while the kernel owns expiry; group permissions restrict local callers and the application keeps no ban state.
