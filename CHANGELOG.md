@@ -4,12 +4,16 @@
 
 ### Summary
 
-Refresh the pinned BMForge installation guidance and starter installer template with support for an application-owned production Python environment.
+Deploy BMCyber with its own managed Python environment so running services and Fail2ban clients never depend on a development checkout or globally installed PyZMQ. Refresh the pinned BMForge installation guidance and starter installer template to support application-owned production Python environments.
 
 ### Changed
 
 - Update `bmforge-installation` from `0.1.1` to `0.1.2` and refresh the installer template bundled with `bmforge-project` at cached BMForge revision `f2fe90fd395e`; record both bundle fingerprints and revisions in the lock file.
-- Include production virtual-environment ownership, dependency installation and deployed-path guidance in the pinned bundles. BMCyber's application installer and runtime are unchanged.
+- Include production virtual-environment ownership, dependency installation and deployed-path guidance in the pinned bundles.
+- Create/reuse `/opt/prod/bmcyber/.venv` during installation and upgrades, install pinned `requirements.txt` dependencies, and verify deployed modules before activating the service.
+- Run the systemd service, Fail2ban action client and health probe with the production venv interpreter; require only Python venv/ensurepip in host preflight.
+- Track virtual-environment ownership in the install manifest, refuse unowned environments and remove only owned environments on uninstall; keep successful version markers gated by health checks.
+- Add lifecycle and isolation tests, fix the outdated 0.0.0 assertion, and update English and Ukrainian operator guides.
 
 ## [0.3.0] - 2026-10-31 @ 08:58
 
