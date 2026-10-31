@@ -13,11 +13,17 @@ outside this implementation.
 ## Prerequisites
 
 Use Linux with systemd, nftables timeout sets, Fail2ban, and Python 3.11 or
-newer. PyZMQ must be available to `/usr/bin/python3`; `requirements.txt` records
-the tested version. The installer checks dependencies but does not install
-host packages or Python dependencies. It uses `/usr/sbin/nft` explicitly.
-`groupadd`, `systemctl` and `fail2ban-client` must also be available to the
-installer. Run the lifecycle commands from a separate source checkout.
+newer, including the standard `venv` and `ensurepip` modules (on Debian,
+install the system `python3-venv` package). The installer checks host tools but
+does not install OS packages. It uses `/usr/sbin/nft` explicitly;
+`groupadd`, `systemctl` and `fail2ban-client` must also be available.
+
+**Global PyZMQ is not required.** `requirements.txt` pins the tested PyZMQ
+version; installation and upgrade install it into
+`/opt/prod/bmcyber/.venv` with that environment's Python and pip. Package
+downloads require a configured package index or an available local wheel cache.
+Run the lifecycle commands from a separate source checkout; the running
+application never reads `/opt/dev`.
 
 Verified here: Python 3.13.5, PyZMQ 26.4.0/libzmq 4.3.5, nftables 1.1.3,
 Fail2ban 1.1.0, and Linux 6.12.111+deb13-amd64. Validate the native behavior
@@ -38,13 +44,20 @@ sudo scripts/uninstall.sh
 ```
 
 All three scripts support `--help`. `--check` validates without changing
-files, accounts, services or rules; nftables preflight still needs firewall
-inspection/check privileges. Invalid configuration or missing dependencies
-fail before stopping services.
+files, accounts, services, virtual environments or rules; it verifies host
+Python `venv`/`ensurepip` support without running pip. nftables preflight
+still needs firewall inspection/check privileges. Invalid configuration or
+missing prerequisites fail before stopping services. Package-index
+availability and third-party imports are verified during the actual install,
+before the service is started.
 
-Installation copies application-owned source into `/opt/prod/bmcyber`,
-creates the `bmcyber` system group when absent, writes only the named unit,
+Installation copies application-owned source and `requirements.txt` into
+`/opt/prod/bmcyber`, creates or reuses the owned `.venv`, installs the
+declared Python requirements, verifies the deployed service and client imports,
+then creates the `bmcyber` system group when absent, writes only the named unit,
 filter, action and jail files, and starts BMCyber before loading its jail.
+Both the systemd service and the Fail2ban client (including its health probe)
+use `/opt/prod/bmcyber/.venv/bin/python`, not system Python.
 The service runs as **root**, not a dedicated account. No `bmcyber` user is
 created. systemd creates `/run/bmcyber` as `root:bmcyber`, mode `0750`; a
 process umask of `0117` creates the IPC socket with mode `0660` immediately.
@@ -52,14 +65,18 @@ A root-owned lock prevents a second service instance replacing the socket.
 Stale sockets are removed only after acquiring that lock; unrelated files
 are rejected.
 
-The installer refuses to overwrite unowned resources. Upgrade and reinstall
-preserve production JSON, operator data and the deployed MyCount jail.
-`.deployment-version` advances only after service startup and a successful
-native IPC health probe. A failed deployment reports failure; file copying
+The installer refuses to overwrite unowned resources or virtual environments.
+Upgrade and reinstall reuse the owned `.venv`, synchronize pinned dependencies
+from the deployed `requirements.txt`, and preserve production JSON, operator
+data and the deployed MyCount jail. The installed environment is recorded as
+owned in `.installation-manifest.json`. `.deployment-version` advances only
+after dependency installation, deployed Python validation, service startup
+and a successful native IPC health probe. A failed deployment reports failure; file copying
 is not a transactional rollback. Inspect or retry the checkout after failure.
 
-Uninstall removes the owned unit, filter, action, jail, source payload and
-nftables table. It preserves unrelated firewall tables and Fail2ban jails,
+Uninstall removes the owned unit, filter, action, jail, source payload,
+installer-owned `.venv` and nftables table. It never deletes an unowned
+virtual environment. It preserves unrelated firewall tables and Fail2ban jails,
 production JSON, user data, and a copy of the MyCount jail under
 `conf/bmcyber-mycount.local`. It retains the system group and its memberships.
 An ownership manifest accounts for retained files and permits repeat uninstall
@@ -90,7 +107,7 @@ interval does not remove enforcement entries.
 Validate configuration and operate the integration in an explicit order:
 
 ```sh
-python3 -m bmcyber --check-config --config conf/bmcyber.json
+/opt/prod/bmcyber/.venv/bin/python -m bmcyber --check-config --config /opt/prod/bmcyber/conf/bmcyber.json
 sudo scripts/services start
 sudo scripts/services restart
 sudo scripts/services stop
