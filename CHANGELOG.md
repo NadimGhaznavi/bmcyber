@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Summary
+
+Deploy BMCyber with its own managed Python environment so running services and Fail2ban clients never depend on a development checkout or globally installed PyZMQ.
+
+### Changed
+
+- Create/reuse `/opt/prod/bmcyber/.venv` during installation and upgrades, install pinned `requirements.txt` dependencies, and verify deployed modules before activating the service.
+- Run the systemd service, Fail2ban action client and health probe with the production venv interpreter; require only Python venv/ensurepip in host preflight.
+- Track virtual-environment ownership in the install manifest, refuse unowned environments and remove only owned environments on uninstall; keep successful version markers gated by health checks.
+- Add lifecycle and isolation tests, fix the outdated 0.0.0 assertion, and update English and Ukrainian operator guides.
+
 ## [0.3.0] - 2026-10-31 @ 08:58
 
 This release is named for the element **Seaborgium  (Sg)**. Seaborgium was named after Glenn Seaborg while he was still alive, an unusual honor for an element discoverer.
