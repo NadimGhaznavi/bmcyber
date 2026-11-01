@@ -1,25 +1,5 @@
-#!/usr/bin/env python3
-"""Start or stop the BMCyber integration in an explicit order."""
-import argparse
-from pathlib import Path
-import subprocess
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from bmcyber.interface.Configuration import Configuration
-
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('action', choices=('start', 'stop', 'restart'))
-args = parser.parse_args()
-if args.action in ('start', 'restart'):
-    Configuration.load()
-
-
-def run(*arguments):
-    subprocess.run(list(arguments), check=True, timeout=30)
-
-
-if args.action in ('stop', 'restart'):
-    run('systemctl', 'stop', 'bmcyber.service')
-if args.action in ('start', 'restart'):
-    run('systemctl', 'start', 'bmcyber.service')
+#!/usr/bin/env bash
+# Always run the installed service controls with the production interpreter.
+set -euo pipefail
+cd /opt/prod/bmcyber
+exec /opt/prod/bmcyber/.venv/bin/python -B -m bmcyber.services "$@"

@@ -1,0 +1,278 @@
+"""Owned file deployment and production Python environment interface."""
+
+import importlib.util
+import json
+import os
+from pathlib import Path, PurePosixPath
+import shutil
+import tempfile
+import subprocess
+
+from bmcyber.constants.DBMCyber import DBMCyber
+from bmcyber.constants.DInstallation import DInstallation, InstallationAction
+from bmcyber.interface.ServiceInstallation import ServiceInstallation
+
+
+BMFORGE_COMPONENT = {"id": "bmforge.installation", "spec_version": "0.1.3"}
+
+
+def relative_path(name: str) -> str:
+    if not isinstance(name, str):
+        raise ValueError("Managed paths must be strings")
+    path = PurePosixPath(name)
+    if not name or path.is_absolute() or '..' in path.parts or path.as_posix() != name or name == '.':
+        raise ValueError(f"Invalid managed path: {name}")
+    if name in (DInstallation.MANIFEST, DInstallation.VERSION_MARKER):
+        raise ValueError(f"Reserved bookkeeping path: {name}")
+    return name
+
+
+def reject_symlinks(path: Path) -> None:
+    for candidate in (path, *path.parents):
+        if candidate.is_symlink():
+            raise ValueError(f"Refusing a symbolic link in deployment path: {candidate}")
+
+
+class Installation:
+    def __init__(self, checkout: Path, *, destination: Path | None = None, host=None,
+                 run=subprocess.run) -> None:
+        self.checkout = checkout.resolve()
+        self.version_file = f"{DInstallation.PROJECT_NAME.lower()}/constants/D{DInstallation.PROJECT_NAME}.py"
+        spec = importlib.util.spec_from_file_location('cmdb_checker', self.checkout / 'scripts/check-cmdb.py')
+        checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checker)
+        self.metadata = checker.validate((self.checkout / self.version_file).read_text(),
+                                         DInstallation.PROJECT_NAME, self.version_file)
+        self.destination = Path(destination if destination is not None else self.metadata['BASE_DIR']).absolute()
+        reject_symlinks(self.destination)
+        if (self.checkout.is_relative_to(self.destination)
+                or self.destination.is_relative_to(self.checkout)):
+            raise ValueError("Run deployment from a separate checkout outside the installation")
+
+        self.host = host or ServiceInstallation(self.checkout, self.destination)
+        self.run = run
+
+    def installed_files(self) -> list[str] | None:
+        manifest = self.destination / DInstallation.MANIFEST
+        reject_symlinks(manifest)
+        if not manifest.exists():
+            if self.destination.exists():
+                raise ValueError("Installation directory exists without an ownership manifest; inspect it before proceeding")
+            return None
+        data = json.loads(manifest.read_text())
+        if (not isinstance(data, dict) or data.get(DInstallation.PROJECT) != DInstallation.PROJECT_NAME
+                or not isinstance(data.get(DInstallation.FILES), list)):
+            raise ValueError("Installation ownership manifest does not match this project")
+        if DInstallation.VENV_OWNED in data and not isinstance(data[DInstallation.VENV_OWNED], bool):
+            raise ValueError("Invalid virtual environment ownership record")
+        names = [relative_path(name) for name in data[DInstallation.FILES]]
+        if (len(names) != len(set(names))
+                or self.version_file not in names and not (not names and data.get(DInstallation.REMOVED) is True)):
+            raise ValueError("Installation ownership manifest has invalid files")
+        for name in [*names, DInstallation.VERSION_MARKER]:
+            path = self.destination / name
+            reject_symlinks(path)
+            if path.exists() and not path.is_file():
+                raise ValueError(f"Managed file is no longer a regular file: {path}")
+        return names
+
+    def source_files(self) -> list[str]:
+        names = {relative_path(name) for name in DInstallation.COPY_FILES}
+        for name in DInstallation.COPY_TREES:
+            folder = self.checkout / relative_path(name)
+            reject_symlinks(folder)
+            if not folder.is_dir():
+                raise ValueError(f"Missing source directory: {name}")
+            for path in folder.rglob('*'):
+                if '__pycache__' in path.parts or DInstallation.VENV_DIR in path.parts or path.suffix in ('.pyc', '.pyo'):
+                    continue
+                reject_symlinks(path)
+                if path.is_file():
+                    names.add(relative_path(path.relative_to(self.checkout).as_posix()))
+        if self.version_file not in names:
+            raise ValueError("Deployment must include readable CMDB constants")
+        for name in names:
+            source = self.checkout / name
+            reject_symlinks(source)
+            if not source.is_file():
+                raise ValueError(f"Missing source file: {name}")
+            target = self.destination / name
+            reject_symlinks(target)
+            if target.exists() and not target.is_file():
+                raise ValueError(f"Managed file target is not a regular file: {target}")
+        return sorted(names)
+
+    def plan(self, action: str) -> tuple[list[str] | None, list[str]]:
+        if not DInstallation.DEPLOYMENT_READY:
+            raise ValueError("Deployment is not configured: implement provisioning, lifecycle, and health checks before enabling it")
+        previous = self.installed_files()
+        if action == InstallationAction.UPGRADE and not previous:
+            raise ValueError("No installation found; run install.sh first")
+        current = [] if action == InstallationAction.UNINSTALL else self.source_files()
+        if previous is not None:
+            for name in set(current) - set(previous):
+                if (self.destination / name).exists():
+                    raise ValueError(f"New managed file would overwrite an unowned file: {name}")
+        self.preflight_venv(action)
+        self.host.preflight(action)
+        return previous, current
+
+    def venv_owned(self) -> bool:
+        manifest = self.destination / DInstallation.MANIFEST
+        return manifest.exists() and json.loads(manifest.read_text()).get(DInstallation.VENV_OWNED) is True
+
+    def preflight_venv(self, action: str) -> None:
+        venv = self.destination / DInstallation.VENV_DIR
+        reject_symlinks(venv)
+        if venv.exists() and not venv.is_dir():
+            raise ValueError(f"Virtual environment path is not a directory: {venv}")
+        if action != InstallationAction.UNINSTALL and venv.exists() and not self.venv_owned():
+            raise ValueError(f"Refusing to overwrite an unowned virtual environment: {venv}")
+        if action != InstallationAction.UNINSTALL and venv.exists() and self.venv_owned():
+            settings = venv / 'pyvenv.cfg'
+            reject_symlinks(settings)
+            python = venv / 'bin/python'
+            reject_symlinks(python.parent)
+            if (not settings.is_file() or not python.is_file()
+                    or '/opt/dev/' in settings.read_text() or '/opt/dev/' in str(python.resolve())):
+                raise ValueError('Production virtual environment is incomplete or references /opt/dev')
+            for line in settings.read_text().splitlines():
+                key, separator, value = line.partition('=')
+                if separator and key.strip() == 'include-system-site-packages' and value.strip().lower() != 'false':
+                    raise ValueError('Production virtual environment must not use global site-packages')
+            self.run([str(python), '-I', '-B', '-c',
+                      'import sys; from pathlib import Path; '
+                      'assert sys.prefix != sys.base_prefix and Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve(), '
+                      '"Production interpreter must belong to the owned venv"', str(venv)],
+                     check=True, cwd=self.destination, env=self.python_environment(),
+                     timeout=DInstallation.COMMAND_TIMEOUT)
+        if action == InstallationAction.UNINSTALL:
+            return
+        requirements = self.checkout / DInstallation.REQUIREMENTS_FILE
+        for entry in requirements.read_text().splitlines():
+            entry = entry.strip()
+            if entry.startswith(('-e', '--editable')) or '/opt/dev/' in entry:
+                raise ValueError('Production Python dependencies must not use editable or /opt/dev installs')
+        host_python = Path(DInstallation.SYSTEM_PYTHON)
+        if (not host_python.is_absolute()
+                or '/opt/dev/' in str(host_python.resolve())
+                or host_python.resolve().is_relative_to(self.checkout)
+                or host_python.resolve().is_relative_to(self.destination)
+                or (host_python.parent.parent / 'pyvenv.cfg').exists()):
+            raise ValueError('SYSTEM_PYTHON must be a host interpreter outside development and deployed environments')
+        if shutil.which(DInstallation.SYSTEM_PYTHON) is None:
+            raise ValueError(f'Missing host Python interpreter: {DInstallation.SYSTEM_PYTHON}')
+        self.run([DInstallation.SYSTEM_PYTHON, '-I', '-B', '-c', 'import venv, ensurepip'],
+                 check=True, env=self.python_environment(), capture_output=True,
+                 text=True, timeout=DInstallation.COMMAND_TIMEOUT)
+
+    def python_environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment.pop('PYTHONPATH', None)
+        environment.pop('PYTHONHOME', None)
+        environment.pop('VIRTUAL_ENV', None)
+        for variable in ('PIP_TARGET', 'PIP_PREFIX', 'PIP_USER'):
+            environment.pop(variable, None)
+        environment['PYTHONNOUSERSITE'] = '1'
+        return environment
+
+    def prepare_python(self) -> None:
+        venv = self.destination / DInstallation.VENV_DIR
+        python = venv / 'bin/python'
+        environment = self.python_environment()
+        if not venv.exists():
+            self.run([DInstallation.SYSTEM_PYTHON, '-m', 'venv', str(venv)],
+                     check=True, env=environment, timeout=DInstallation.VENV_TIMEOUT)
+        self.run([str(python), '-m', 'pip', InstallationAction.INSTALL, '--upgrade',
+                  '-r', str(self.destination / DInstallation.REQUIREMENTS_FILE)],
+                 check=True, cwd=self.destination, env=environment, timeout=DInstallation.PIP_TIMEOUT)
+        self.run([str(python), '-m', 'pip', 'check'], check=True, cwd=self.destination,
+                 env=environment, timeout=DInstallation.COMMAND_TIMEOUT)
+        self.run([str(python), '-B', '-c',
+                  'from importlib import import_module; from sys import argv; '
+                  '[import_module(name) for name in argv[1:]]', *DInstallation.RUNTIME_IMPORTS],
+                 check=True, cwd=self.destination, env=environment, timeout=DInstallation.COMMAND_TIMEOUT)
+
+    def verify_python(self) -> None:
+        python = str(self.destination / DInstallation.VENV_DIR / 'bin/python')
+        environment = self.python_environment()
+        self.run([python, '-B', '-m', 'bmcyber', '--check-config',
+                        '--config', str(self.destination / DBMCyber.CONFIG_FILE)],
+                       check=True, cwd=self.destination, env=environment, timeout=DInstallation.COMMAND_TIMEOUT)
+        self.run([python, '-B', '-m', 'bmcyber.client', '--help'],
+                       check=True, cwd=self.destination, env=environment, timeout=DInstallation.COMMAND_TIMEOUT)
+
+    def atomic_write(self, path: Path, content: bytes, mode: int = 0o644) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for directory in (path.parent, *path.parent.parents):
+            if directory == self.destination.parent:
+                break
+            directory.chmod(0o755)
+        descriptor, name = tempfile.mkstemp(prefix='.bmforge-install-', dir=path.parent)
+        temporary = Path(name)
+        try:
+            with os.fdopen(descriptor, 'wb') as stream:
+                stream.write(content)
+                os.fchmod(stream.fileno(), mode)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def remove_files(self, names: list[str]) -> None:
+        for name in names:
+            path = self.destination / name
+            path.unlink(missing_ok=True)
+            for directory in path.parents:
+                if directory == self.destination:
+                    break
+                try:
+                    directory.rmdir()
+                except OSError:
+                    break
+
+    def apply(self, action: str, *, check: bool = False) -> None:
+        previous, names = self.plan(action)
+        if check:
+            return
+        if action == InstallationAction.UNINSTALL:
+            self.host.uninstall()
+            if previous is not None:
+                self.remove_files(previous)
+                if self.venv_owned():
+                    venv = self.destination / DInstallation.VENV_DIR
+                    reject_symlinks(venv)
+                    if venv.is_dir():
+                        shutil.rmtree(venv)
+                (self.destination / DInstallation.VERSION_MARKER).unlink(missing_ok=True)
+                (self.destination / DInstallation.MANIFEST).unlink()
+                try:
+                    self.destination.rmdir()
+                except OSError:
+                    # Remember that retained state belongs to this project so
+                    # repeated removal or reinstallation can recognize it.
+                    removed = {DInstallation.PROJECT: DInstallation.PROJECT_NAME, DInstallation.FILES: [], DInstallation.REMOVED: True}
+                    self.atomic_write(self.destination / DInstallation.MANIFEST, (json.dumps(removed, indent=2) + '\n').encode())
+            return
+        self.host.stop()
+        self.destination.mkdir(parents=True, exist_ok=True)
+        self.destination.chmod(0o755)
+        # Keep ownership information for partial copies so a retry or uninstall can
+        # account for new files. Advance the successful-version marker only last.
+        owned = sorted(set(previous or ()) | set(names))
+        ownership = {DInstallation.PROJECT: DInstallation.PROJECT_NAME, DInstallation.FILES: owned, DInstallation.VENV_OWNED: True}
+        self.atomic_write(self.destination / DInstallation.MANIFEST, (json.dumps(ownership, indent=2) + '\n').encode())
+        # Existing managed files may change before success; this is not rollback.
+        for name in [item for item in names if item != self.version_file]:
+            source = self.checkout / name
+            mode = 0o755 if source.stat().st_mode & 0o111 else 0o644
+            self.atomic_write(self.destination / name, source.read_bytes(), mode)
+        self.remove_files(sorted(set(previous or ()) - set(names)))
+        self.atomic_write(self.destination / self.version_file, (self.checkout / self.version_file).read_bytes())
+        self.prepare_python()
+        self.host.configure()
+        self.verify_python()
+        self.host.start()
+        self.host.health()
+        ownership[DInstallation.FILES] = names
+        self.atomic_write(self.destination / DInstallation.MANIFEST, (json.dumps(ownership, indent=2) + '\n').encode())
+        self.atomic_write(self.destination / DInstallation.VERSION_MARKER, (self.metadata['VERSION'] + '\n').encode())

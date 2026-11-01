@@ -8,18 +8,18 @@ import subprocess
 import tempfile
 
 from bmcyber.constants.DBMCyber import DBMCyber
+from bmcyber.constants.DInstallation import DInstallation, InstallationAction
+from bmcyber.constants.DService import DService
 from bmcyber.constants.DZMQ import DZMQ
 from bmcyber.constants.DPolicy import DPolicy
 from bmcyber.interface.Configuration import Configuration
 from bmcyber.interface.Nftables import Nftables
+from bmcyber.interface.ServiceControl import ServiceControl
 
 
 class ServiceInstallation:
-    RESOURCES = {
-        'systemd/bmcyber.service': 'etc/systemd/system/bmcyber.service',
-        'fail2ban/action.d/bmcyber.conf': 'etc/fail2ban/action.d/bmcyber.conf',
-    }
-    OWNERSHIP = '.service-resources.json'
+    RESOURCES = dict(DInstallation.SERVICE_RESOURCES)
+    OWNERSHIP = DInstallation.SERVICE_OWNERSHIP
 
     def __init__(self, checkout, destination, *, root=Path('/'), run=subprocess.run, which=shutil.which, firewall=None):
         self.checkout = Path(checkout)
@@ -28,9 +28,11 @@ class ServiceInstallation:
         self.run = run
         self.which = which
         self.firewall = firewall or Nftables()
+        self.control = ServiceControl(run=run)
 
     def command(self, *arguments):
-        return self.run(list(arguments), check=True, text=True, capture_output=True, timeout=30)
+        return self.run(list(arguments), check=True, text=True, capture_output=True,
+                        timeout=DInstallation.COMMAND_TIMEOUT)
 
     def owned(self):
         marker = self.destination / self.OWNERSHIP
@@ -38,7 +40,8 @@ class ServiceInstallation:
         if not marker.exists():
             return []
         names = json.loads(marker.read_text())
-        if not isinstance(names, list) or set(names) != set(self.RESOURCES.values()):
+        if (not isinstance(names, list) or not all(isinstance(name, str) for name in names)
+                or len(names) != len(set(names)) or set(names) != set(self.RESOURCES.values())):
             raise ValueError('invalid service resource ownership record')
         return names
 
@@ -50,36 +53,49 @@ class ServiceInstallation:
 
     def preflight(self, action):
         owned = self.owned()
-        if action == 'uninstall' and not owned:
+        if action == InstallationAction.UNINSTALL and not owned:
             return
-        required = ('systemctl', DPolicy.NFT_EXECUTABLE, 'fail2ban-client')
-        if action != 'uninstall':
-            required += ('/usr/bin/python3',)
+        required = (DService.SYSTEMCTL, DPolicy.NFT_EXECUTABLE)
+        if action != InstallationAction.UNINSTALL:
+            required += (DService.FAIL2BAN_CLIENT, DService.FAIL2BAN_SERVER)
             try:
                 grp.getgrnam(DZMQ.GROUP)
             except KeyError:
-                required += ('groupadd',)
+                required += (DService.GROUPADD,)
             self.safe(self.destination / DBMCyber.CONFIG_FILE)
             Configuration.load(self.destination / DBMCyber.CONFIG_FILE)
         for executable in required:
             if self.which(executable) is None:
                 raise ValueError(f'missing required executable: {executable}')
-        if action != 'uninstall':
-            # Python's venv/ensurepip support is required, not global PyZMQ.
-            # Deployed packages are installed in /opt/prod/bmcyber/.venv.
-            self.command('/usr/bin/python3', '-c', 'import venv, ensurepip')
         for original, relative in self.RESOURCES.items():
             target = self.root / relative
             self.safe(target)
             if target.exists() and (not target.is_file() or relative not in owned):
                 raise ValueError(f'refusing an unowned service resource: {target}')
-            if action != 'uninstall' and not (self.checkout / original).is_file():
+            if action != InstallationAction.UNINSTALL and not (self.checkout / original).is_file():
                 raise ValueError(f'missing service source: {original}')
-        if action != 'uninstall':
+        if action != InstallationAction.UNINSTALL:
+            self.check_journal()
             self.firewall.initialize(check=True)
-            self.command('fail2ban-client', '-t')
+            self.command(DService.FAIL2BAN_CLIENT, '-t')
         elif owned and self.firewall.exists():
             self.firewall.inspect()
+
+    def check_journal(self):
+        # Support the distribution's host interpreter explicitly; never probe
+        # journal bindings in BMCyber's venv or guess an alternative interpreter.
+        server = Path(self.which(DService.FAIL2BAN_SERVER))
+        with server.open() as stream:
+            interpreter = stream.readline().removeprefix('#!').strip()
+        if interpreter != DInstallation.SYSTEM_PYTHON:
+            raise ValueError(f'Fail2ban must use the host interpreter {DInstallation.SYSTEM_PYTHON}')
+        self.command(DInstallation.SYSTEM_PYTHON, '-I', '-B', '-c',
+                     'from systemd import journal\n'
+                     'with journal.Reader(flags=journal.LOCAL_ONLY | journal.SYSTEM) as reader:\n'
+                     '    if not (reader.has_runtime_files() or reader.has_persistent_files()):\n'
+                     '        raise RuntimeError("No readable system journal; check Fail2ban host journal access")\n'
+                     '    reader.seek_tail()\n'
+                     '    reader.get_previous()\n')
 
     @staticmethod
     def atomic_write(path, content):
@@ -97,13 +113,13 @@ class ServiceInstallation:
     def stop(self):
         if not self.owned():
             return
-        self.command('systemctl', 'stop', 'bmcyber.service')
+        self.control.stop()
 
     def configure(self):
         try:
             grp.getgrnam(DZMQ.GROUP)
         except KeyError:
-            self.command('groupadd', '--system', DZMQ.GROUP)
+            self.command(DService.GROUPADD, '--system', DZMQ.GROUP)
         configuration = self.destination / DBMCyber.CONFIG_FILE
         if not configuration.exists():
             self.atomic_write(configuration, (json.dumps(Configuration.defaults(), indent=2) + '\n').encode())
@@ -112,23 +128,23 @@ class ServiceInstallation:
         for original, relative in self.RESOURCES.items():
             target = self.root / relative
             self.atomic_write(target, (self.checkout / original).read_bytes())
-        self.command('systemctl', 'daemon-reload')
-        self.command('fail2ban-client', '-t')
+        self.control.reload()
+        self.command(DService.FAIL2BAN_CLIENT, '-t')
 
     def start(self):
-        self.command('systemctl', 'enable', '--now', 'bmcyber.service')
+        self.control.start(enable=True)
 
     def health(self):
-        self.command(str(self.destination / 'scripts/bmcyber-client'), 'health')
+        self.command(str(self.destination / DInstallation.CLIENT_LAUNCHER), 'health')
 
     def uninstall(self):
         owned = self.owned()
         if not owned:
             return
         self.stop()
-        self.command('systemctl', 'disable', '--now', 'bmcyber.service')
+        self.control.disable()
         self.firewall.uninstall()
         for relative in owned:
             (self.root / relative).unlink(missing_ok=True)
-        self.command('systemctl', 'daemon-reload')
+        self.control.reload()
         (self.destination / self.OWNERSHIP).unlink()

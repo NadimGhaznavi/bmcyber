@@ -4,7 +4,7 @@
 
 ### Summary
 
-Refresh the project's pinned BMForge skills and manager to release 0.21.2. Remove the unused file-based application integration to prepare BMCyber for a separate refactoring and journal-based MyCount integration.
+Refresh the pinned BMForge guidance, remove the unused file-based integration, and refactor BMCyber's installation and service controls around application-owned interfaces. Production Python validation and host journal preflight now prepare the application for the separate MyCount integration.
 
 ### Removed
 
@@ -13,6 +13,10 @@ Refresh the project's pinned BMForge skills and manager to release 0.21.2. Remov
 
 ### Changed
 
+- Move deployment and host-resource interfaces into `bmcyber/interface/`, centralize deployment/service identifiers, and share systemd controls between installation and the service CLI. Run `scripts/services` through the installed production venv and use English catalogue keys for installation and service-control CLI messages.
+- Apply installation specification `0.1.3` to the actual installer: reject editable/development requirements and damaged or globally exposed environments; verify host venv support before mutation, run deployed `pip check` and runtime imports before activation, and retain last-successful markers on failure.
+- Preflight native Fail2ban journal bindings and system-journal access with the verified host interpreter before install/upgrade changes. Uninstall no longer requires Fail2ban executables or journal access. No application filter or jail is introduced in this stage.
+- Extend failure, ownership and service-order coverage, including real offline dependency installation/upgrade and deployed entry-point imports with the checkout unavailable; refresh operator documentation.
 - Refresh all eight installed BMForge skill bundles and the project-local manager to upstream revision `efb49f99fc86`; update each bundle's integrity fingerprint and source revision in the lock file.
 - Update the pinned Fail2ban specification from `0.2.0` to `0.3.0` and installation specification from `0.1.2` to `0.1.3`, including the bundled installer template and shared component catalogue. This maintenance update does not migrate application code, add optional skills, install dependencies or alter host configuration.
 

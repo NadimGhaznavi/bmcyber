@@ -16,7 +16,15 @@ Use Linux with systemd, nftables timeout sets, Fail2ban, and Python 3.11 or
 newer, including the standard `venv` and `ensurepip` modules (on Debian,
 install the system `python3-venv` package). The installer checks host tools but
 does not install OS packages. It uses `/usr/sbin/nft` explicitly;
-`groupadd`, `systemctl` and `fail2ban-client` must also be available.
+`groupadd`, `systemctl`, `fail2ban-client` and `fail2ban-server` must also be available.
+
+The supported Fail2ban deployment uses the distribution's `/usr/bin/python3`
+interpreter. Install its native `python3-systemd` bindings (or distribution
+equivalent) in the host environment. BMCyber checks the server script's
+interpreter and opens the system journal with that host Python before changing
+files or stopping services. At least one readable runtime or persistent system
+journal file must exist. These bindings belong to Fail2ban, not BMCyber's venv.
+This checks journal readiness; application event matching is a separate integration.
 
 **Global PyZMQ is not required.** `requirements.txt` pins the tested PyZMQ
 version; installation and upgrade install it into
@@ -45,18 +53,21 @@ sudo scripts/uninstall.sh
 
 All three scripts support `--help`. `--check` validates without changing
 files, accounts, services, virtual environments or rules; it verifies host
-Python `venv`/`ensurepip` support without running pip. nftables preflight
+Python `venv`/`ensurepip` support, dependency declarations, existing venv integrity
+and Fail2ban journal access without running pip. nftables preflight
 still needs firewall inspection/check privileges. Invalid configuration or
 missing prerequisites fail before stopping services. Package-index
-availability and third-party imports are verified during the actual install,
-before the service is started.
+availability, `pip check` and deployed runtime imports are verified during the
+actual install, before the service is started. Editable dependencies and paths
+under `/opt/dev` are rejected. An incomplete owned venv or one that enables
+global site-packages is rejected rather than silently recreated.
 
 Installation copies application-owned source and `requirements.txt` into
 `/opt/prod/bmcyber`, creates or reuses the owned `.venv`, installs the
 declared Python requirements, verifies the deployed service and client imports,
 then creates the `bmcyber` system group when absent, writes only the named
 unit and action files, and starts BMCyber. It installs no detection filter or jail.
-Both the systemd service and the Fail2ban client (including its health probe)
+The systemd service, Fail2ban client (including its health probe) and service-control launcher
 use `/opt/prod/bmcyber/.venv/bin/python`, not system Python.
 The service runs as **root**, not a dedicated account. No `bmcyber` user is
 created. systemd creates `/run/bmcyber` as `root:bmcyber`, mode `0750`; a
@@ -114,6 +125,8 @@ sudo scripts/services stop
 
 Start and stop operate only on BMCyber. Restart validates application
 configuration before stopping. These commands leave Fail2ban and its jails running.
+`scripts/services` always launches the installed `bmcyber.services` module with
+the production venv. Its systemd interface is also used by the installer.
 Add the account running any non-root action client to the `bmcyber` group and
 start a new login/session for its supplementary group membership to apply.
 
@@ -215,6 +228,12 @@ start/stop/restart, actual IPC group permissions, malformed-message recovery,
 client error status, systemd unit verification, and install/upgrade/uninstall
 ownership and failure behavior using service fixtures. Application journal
 detection and native Fail2ban integration will require their own acceptance checks.
+
+Installation tests also exercise a real offline wheel install and dependency
+upgrade, `pip check`, failed runtime imports, preserved success markers and
+service/client/control imports with the source checkout unavailable. Host
+journal preflight failure cases use fixtures; live journal access remains a
+deployment acceptance check.
 
 Before deployment, verify package versions, administrative exemptions and
 complete install/upgrade/uninstall behavior on a disposable host with systemd.

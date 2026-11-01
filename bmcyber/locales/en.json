@@ -3,5 +3,12 @@
   "cli.service.description": "Run the BMCyber IPC service or validate its configuration.",
   "cli.failure": "BMCyber failed: {detail}",
   "cli.success": "BMCyber acknowledged {method}: {result}",
-  "cli.checked": "BMCyber configuration is valid."
+  "cli.checked": "BMCyber configuration is valid.",
+  "cli.install.description": "Install, upgrade or uninstall the BMCyber single-host service.",
+  "cli.install.check_help": "Validate the operation without changing files.",
+  "cli.install.root_required": "Run deployment as root; --check and --help do not require root.",
+  "cli.install.checked": "{action}: checks passed for {destination}; no files changed.",
+  "cli.install.complete": "{action}: BMCyber {version} deployed to {destination}.",
+  "cli.install.removed": "Removed managed BMCyber files from {destination}; configuration and user data are retained.",
+  "cli.services.description": "Start, stop or restart the BMCyber service."
 }
