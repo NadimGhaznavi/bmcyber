@@ -4,7 +4,12 @@
 
 ### Summary
 
-Refresh the project's pinned BMForge skills and manager to release 0.21.2, bringing in the latest journal-based Fail2ban guidance and production Python isolation standards.
+Refresh the project's pinned BMForge skills and manager to release 0.21.2. Remove the unused file-based application integration to prepare BMCyber for a separate refactoring and journal-based MyCount integration.
+
+### Removed
+
+- Remove the unused `fail2safe` filter, sample MyCount logfile jail, jail retention and service controls, polling integration test, and obsolete English/Ukrainian integration guides. Keep the ban service, acknowledged client and ban-only Fail2ban action; lifecycle commands no longer start or control Fail2ban jails.
+- Drop preservation and restoration of the unused jail across upgrade, uninstall and reinstall. Existing deployments are disposable, so no migration is provided; this change does not modify or redeploy Wintermute.
 
 ### Changed
 

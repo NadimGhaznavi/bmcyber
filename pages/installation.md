@@ -7,8 +7,8 @@ translation_key: bmcyber-installation
 ---
 
 BMCyber is a single-host root systemd service plus a local Fail2ban action
-client. MyCount's flood detector remains in MyCount. SnakeWeb integration is
-outside this implementation.
+client. Application-specific detection filters and jails are not currently
+supplied; the action and acknowledged ban client are available for integration.
 
 ## Prerequisites
 
@@ -54,8 +54,8 @@ before the service is started.
 Installation copies application-owned source and `requirements.txt` into
 `/opt/prod/bmcyber`, creates or reuses the owned `.venv`, installs the
 declared Python requirements, verifies the deployed service and client imports,
-then creates the `bmcyber` system group when absent, writes only the named unit,
-filter, action and jail files, and starts BMCyber before loading its jail.
+then creates the `bmcyber` system group when absent, writes only the named
+unit and action files, and starts BMCyber. It installs no detection filter or jail.
 Both the systemd service and the Fail2ban client (including its health probe)
 use `/opt/prod/bmcyber/.venv/bin/python`, not system Python.
 The service runs as **root**, not a dedicated account. No `bmcyber` user is
@@ -68,17 +68,16 @@ are rejected.
 The installer refuses to overwrite unowned resources or virtual environments.
 Upgrade and reinstall reuse the owned `.venv`, synchronize pinned dependencies
 from the deployed `requirements.txt`, and preserve production JSON, operator
-data and the deployed MyCount jail. The installed environment is recorded as
+data. The installed environment is recorded as
 owned in `.installation-manifest.json`. `.deployment-version` advances only
 after dependency installation, deployed Python validation, service startup
 and a successful native IPC health probe. A failed deployment reports failure; file copying
 is not a transactional rollback. Inspect or retry the checkout after failure.
 
-Uninstall removes the owned unit, filter, action, jail, source payload,
+Uninstall removes the owned unit, action, source payload,
 installer-owned `.venv` and nftables table. It never deletes an unowned
 virtual environment. It preserves unrelated firewall tables and Fail2ban jails,
-production JSON, user data, and a copy of the MyCount jail under
-`conf/bmcyber-mycount.local`. It retains the system group and its memberships.
+production JSON and user data. It retains the system group and its memberships.
 An ownership manifest accounts for retained files and permits repeat uninstall
 or reinstall. The last-successful version marker is removed on uninstall.
 
@@ -113,9 +112,8 @@ sudo scripts/services restart
 sudo scripts/services stop
 ```
 
-Start brings up BMCyber, then Fail2ban, then reloads the named jail. Stop stops
-only the MyCount jail, then BMCyber, leaving unrelated Fail2ban jails running.
-Restart validates application and Fail2ban configuration before stopping.
+Start and stop operate only on BMCyber. Restart validates application
+configuration before stopping. These commands leave Fail2ban and its jails running.
 Add the account running any non-root action client to the `bmcyber` group and
 start a new login/session for its supplementary group membership to apply.
 
@@ -123,7 +121,7 @@ The installed client supports:
 
 ```sh
 /opt/prod/bmcyber/scripts/bmcyber-client health
-/opt/prod/bmcyber/scripts/bmcyber-client ban --ip 192.0.2.10 --source mycount
+/opt/prod/bmcyber/scripts/bmcyber-client ban --ip 192.0.2.10 --source operator
 ```
 
 The ban command is an example using a documentation address. The client also
@@ -142,10 +140,10 @@ request and reply, with a maximum frame size of 65,536 bytes. The envelope is:
 ```json
 {
   "protocol_version": 1,
-  "sender": "mycount-action",
+  "sender": "bmcyber-client",
   "target": "bmcyber",
   "method": "ban",
-  "payload": {"ip": "192.0.2.10", "source": "bmcyber-mycount"}
+  "payload": {"ip": "192.0.2.10", "source": "operator"}
 }
 ```
 
@@ -205,13 +203,6 @@ subprocess.run(['unshare', '-Urn', sys.executable, 'tests/live_firewall.py'], en
 PY
 ```
 
-`tests/live_fail2ban.py` uses the same guard and needs
-`BMCYBER_FAIL2BAN_ROOT` pointing to an extracted Fail2ban package tree. It
-starts a temporary daemon with a polling test jail and shortened durations,
-uses the production client with an injected temporary endpoint, and verifies
-native detection, exemptions and non-removal on ticket expiry, manual unban
-and jail stop. No host package or service installation is needed for that test.
-
 `tests/live_permissions.py` requires root and uses only temporary sockets to
 check a permitted non-root group member and an unrelated unprivileged account.
 `tests/live_service.py` requires explicit private mount/network namespace guards
@@ -222,15 +213,11 @@ The verified checks include native IPv4/IPv6 packet drop and expiry, repeated
 insertion, explicit adapter removal, unrelated-table preservation, root service
 start/stop/restart, actual IPC group permissions, malformed-message recovery,
 client error status, systemd unit verification, and install/upgrade/uninstall
-ownership and failure behavior using service fixtures. Native filter verification
-matches the two intended IPv4/IPv6 events in
-`tests/fixtures/security-events.log`, recognizes all eight timestamps and rejects
-six benign/invalid records.
+ownership and failure behavior using service fixtures. Application journal
+detection and native Fail2ban integration will require their own acceptance checks.
 
-An actual systemd-managed installation on wintermute has not been performed.
-Before deployment, verify its package versions, actual MyCount log path,
-trusted proxy/client-IP configuration, administrative exemptions and complete
-install/upgrade/uninstall behavior on a disposable host with systemd.
+Before deployment, verify package versions, administrative exemptions and
+complete install/upgrade/uninstall behavior on a disposable host with systemd.
 
 ---
 

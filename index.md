@@ -13,8 +13,9 @@ permalink: /
 ![{{ site.title }} logo]({{ site.logo | relative_url }})
 
 BMCyber adds host-local timed IP blocking to application abuse detection.
-MyCount logs a `fail2safe` event; Fail2ban invokes a thin client over a Linux
-IPC socket; the root BMCyber service blocks the address with nftables.
+The thin client sends ban requests over a Linux IPC socket; the root BMCyber
+service blocks the address with nftables. Application-specific detection
+filters and jails are not currently supplied.
 
 The default block lasts **20 hours plus a random 0–4 hours** and covers all
 inbound traffic from the address. Fail2ban's unban, stop and flush hooks are
@@ -28,10 +29,7 @@ The service runs as root. Non-root clients connect through membership in the
 
 ## Documentation
 
-- [Application log integration]({{ site.baseurl }}{% link pages/application-log-integration.md %}): register a log, emit a trusted event and configure Fail2ban.
 - [Installation and operation]({{ site.baseurl }}{% link pages/installation.md %}): dependencies, configuration, lifecycle commands, protocol and verification.
 
-The supplied MyCount jail is disabled. Set its actual log path and verify
-MyCount's client-IP handling behind Caddy before enabling it on wintermute.
 Host firewall blocking protects application processing; upstream link
 saturation still requires upstream mitigation.

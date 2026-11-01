@@ -17,13 +17,9 @@ from bmcyber.interface.Nftables import Nftables
 class ServiceInstallation:
     RESOURCES = {
         'systemd/bmcyber.service': 'etc/systemd/system/bmcyber.service',
-        'fail2ban/filter.d/bmcyber-security.conf': 'etc/fail2ban/filter.d/bmcyber-security.conf',
         'fail2ban/action.d/bmcyber.conf': 'etc/fail2ban/action.d/bmcyber.conf',
-        'fail2ban/jail.d/bmcyber-mycount.local': 'etc/fail2ban/jail.d/bmcyber-mycount.local',
     }
     OWNERSHIP = '.service-resources.json'
-    JAIL = 'bmcyber-mycount'
-    RETAINED_JAIL = 'conf/bmcyber-mycount.local'
 
     def __init__(self, checkout, destination, *, root=Path('/'), run=subprocess.run, which=shutil.which, firewall=None):
         self.checkout = Path(checkout)
@@ -101,17 +97,6 @@ class ServiceInstallation:
     def stop(self):
         if not self.owned():
             return
-        state = self.run(['systemctl', 'is-active', '--quiet', 'fail2ban.service'],
-                         check=False, text=True, capture_output=True, timeout=30)
-        if state.returncode == 0:
-            status = self.run(['fail2ban-client', 'status', self.JAIL],
-                              check=False, text=True, capture_output=True, timeout=30)
-            if status.returncode == 0:
-                self.command('fail2ban-client', 'stop', self.JAIL)
-            else:
-                self.command('fail2ban-client', 'ping')
-        elif state.returncode != 3:
-            raise ValueError('cannot determine the Fail2ban service state')
         self.command('systemctl', 'stop', 'bmcyber.service')
 
     def configure(self):
@@ -126,21 +111,12 @@ class ServiceInstallation:
                           (json.dumps(list(self.RESOURCES.values()), indent=2) + '\n').encode())
         for original, relative in self.RESOURCES.items():
             target = self.root / relative
-            if original.endswith('.local'):
-                if target.exists():
-                    continue
-                retained = self.destination / self.RETAINED_JAIL
-                content = retained.read_bytes() if retained.exists() else (self.checkout / original).read_bytes()
-            else:
-                content = (self.checkout / original).read_bytes()
-            self.atomic_write(target, content)
+            self.atomic_write(target, (self.checkout / original).read_bytes())
         self.command('systemctl', 'daemon-reload')
         self.command('fail2ban-client', '-t')
 
     def start(self):
         self.command('systemctl', 'enable', '--now', 'bmcyber.service')
-        self.command('systemctl', 'start', 'fail2ban.service')
-        self.command('fail2ban-client', 'reload', '--if-exists', self.JAIL)
 
     def health(self):
         self.command(str(self.destination / 'scripts/bmcyber-client'), 'health')
@@ -150,10 +126,6 @@ class ServiceInstallation:
         if not owned:
             return
         self.stop()
-        jail = self.root / self.RESOURCES['fail2ban/jail.d/bmcyber-mycount.local']
-        if jail.exists():
-            self.atomic_write(self.destination / self.RETAINED_JAIL, jail.read_bytes())
-            jail.unlink()
         self.command('systemctl', 'disable', '--now', 'bmcyber.service')
         self.firewall.uninstall()
         for relative in owned:

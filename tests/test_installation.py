@@ -92,14 +92,13 @@ def test_install_reinstall_upgrade_uninstall_and_reinstall_preserve_operator_dat
     assert (base / '.venv/bin/python').is_file()
     assert json.loads((base / '.installation-manifest.json').read_text())['venv_owned']
     assert (base / 'bmcyber/constants/DBMCyber.py').is_file()
-    assert calls.index(['systemctl', 'enable', '--now', 'bmcyber.service']) < calls.index(['systemctl', 'start', 'fail2ban.service'])
+    assert ['systemctl', 'enable', '--now', 'bmcyber.service'] in calls
     configuration = base / 'conf/bmcyber.json'
     data = json.loads(configuration.read_text())
     data['ban']['base_hours'] = 21
     configuration.write_text(json.dumps(data))
-    jail = host.root / host.RESOURCES['fail2ban/jail.d/bmcyber-mycount.local']
-    jail.write_text(jail.read_text().replace('/var/log/mycount/mycount.log', '/operator/mycount.log'))
     unrelated = host.root / 'etc/fail2ban/jail.d/unrelated.local'
+    unrelated.parent.mkdir(parents=True)
     unrelated.write_text('[unrelated]\nenabled = false\n')
     (base / 'operator-notes.txt').write_text('keep me')
     installation.apply('install')
@@ -107,18 +106,14 @@ def test_install_reinstall_upgrade_uninstall_and_reinstall_preserve_operator_dat
     assert calls.count([installer.SYSTEM_PYTHON, '-m', 'venv', str(base / '.venv')]) == 1
     assert sum(command[1:4] == ['-m', 'pip', 'install'] for command in calls) == 3
     assert json.loads(configuration.read_text())['ban']['base_hours'] == 21
-    assert '/operator/mycount.log' in jail.read_text()
     installation.apply('uninstall')
     installation.apply('uninstall')
     assert unrelated.exists()
     assert (base / 'operator-notes.txt').read_text() == 'keep me'
     assert configuration.exists()
-    assert '/operator/mycount.log' in (base / host.RETAINED_JAIL).read_text()
     assert not (base / '.deployment-version').exists()
     assert not (base / '.venv').exists()
-    assert not jail.exists()
     installation.apply('install')
-    assert '/operator/mycount.log' in jail.read_text()
     assert json.loads(configuration.read_text())['ban']['base_hours'] == 21
 
 
@@ -170,11 +165,8 @@ def test_symlink_and_manifest_escape_rejected(deployment, tmp_path):
         installer.relative_path('../outside')
 
 
-def test_disabled_jail_and_empty_enforcement_removal_hooks():
+def test_empty_enforcement_removal_hooks():
     import configparser
-    jail = configparser.ConfigParser(interpolation=None)
-    jail.read(ROOT / 'fail2ban/jail.d/bmcyber-mycount.local')
-    assert not jail['bmcyber-mycount'].getboolean('enabled')
     action = configparser.ConfigParser(interpolation=None)
     action.read(ROOT / 'fail2ban/action.d/bmcyber.conf')
     for hook in ('actionunban', 'actionstop', 'actionflush'):
@@ -183,14 +175,15 @@ def test_disabled_jail_and_empty_enforcement_removal_hooks():
     assert '<bantime>' not in action['Definition']['actionban']
 
 
-def test_upgrade_stops_only_owned_jail_before_service(deployment):
+def test_service_lifecycle_leaves_fail2ban_running(deployment):
     installation, host, calls = deployment
     installation.apply('install')
     calls.clear()
     installation.apply('upgrade')
-    assert calls.index(['fail2ban-client', 'stop', 'bmcyber-mycount']) < calls.index(['systemctl', 'stop', 'bmcyber.service'])
-    assert ['systemctl', 'stop', 'fail2ban.service'] not in calls
-    assert ['fail2ban-client', 'reload'] not in calls
+    assert ['systemctl', 'stop', 'bmcyber.service'] in calls
+    installation.apply('uninstall')
+    assert not any(command[:2] in (['fail2ban-client', 'stop'], ['fail2ban-client', 'reload'])
+                   or command[0] == 'systemctl' and 'fail2ban.service' in command for command in calls)
 
 
 def test_venv_preflight_and_dry_run_are_read_only(deployment):
