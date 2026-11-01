@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Summary
+
+Refresh the project's pinned BMForge skills and manager to release 0.21.2, bringing in the latest journal-based Fail2ban guidance and production Python isolation standards.
+
+### Changed
+
+- Refresh all eight installed BMForge skill bundles and the project-local manager to upstream revision `efb49f99fc86`; update each bundle's integrity fingerprint and source revision in the lock file.
+- Update the pinned Fail2ban specification from `0.2.0` to `0.3.0` and installation specification from `0.1.2` to `0.1.3`, including the bundled installer template and shared component catalogue. This maintenance update does not migrate application code, add optional skills, install dependencies or alter host configuration.
+
 ## [0.3.1] - 2026-10-31 @ 11:03
 
 ### Summary
