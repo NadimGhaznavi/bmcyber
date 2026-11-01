@@ -7,8 +7,9 @@ translation_key: bmcyber-installation
 ---
 
 BMCyber is a single-host root systemd service plus a local Fail2ban action
-client. Application-specific detection filters and jails are not currently
-supplied; the action and acknowledged ban client are available for integration.
+client. Two initially disabled MyCount jails use native systemd journal
+detection. See [MyCount integration]({{ site.baseurl }}{% link pages/mycount-integration.md %})
+for their policies and activation checks.
 
 ## Prerequisites
 
@@ -66,7 +67,8 @@ Installation copies application-owned source and `requirements.txt` into
 `/opt/prod/bmcyber`, creates or reuses the owned `.venv`, installs the
 declared Python requirements, verifies the deployed service and client imports,
 then creates the `bmcyber` system group when absent, writes only the named
-unit and action files, and starts BMCyber. It installs no detection filter or jail.
+unit, action, MyCount filter and jail files, and starts BMCyber before loading
+the two owned jails. Both jails are disabled on a fresh installation.
 The systemd service, Fail2ban client (including its health probe) and service-control launcher
 use `/opt/prod/bmcyber/.venv/bin/python`, not system Python.
 The service runs as **root**, not a dedicated account. No `bmcyber` user is
@@ -79,16 +81,19 @@ are rejected.
 The installer refuses to overwrite unowned resources or virtual environments.
 Upgrade and reinstall reuse the owned `.venv`, synchronize pinned dependencies
 from the deployed `requirements.txt`, and preserve production JSON, operator
-data. The installed environment is recorded as
+data and the current MyCount jail configuration. The installed environment is recorded as
 owned in `.installation-manifest.json`. `.deployment-version` advances only
 after dependency installation, deployed Python validation, service startup
 and a successful native IPC health probe. A failed deployment reports failure; file copying
 is not a transactional rollback. Inspect or retry the checkout after failure.
 
-Uninstall removes the owned unit, action, source payload,
+Uninstall removes the owned unit, action, MyCount filter/jail and source payload,
 installer-owned `.venv` and nftables table. It never deletes an unowned
 virtual environment. It preserves unrelated firewall tables and Fail2ban jails,
-production JSON and user data. It retains the system group and its memberships.
+production JSON, user data and the saved MyCount jail settings under
+`conf/mycount-jails.local`. It retains the system group and its memberships.
+Uninstall needs the native client when Fail2ban is running, but does not require
+journal bindings or a working BMCyber venv.
 An ownership manifest accounts for retained files and permits repeat uninstall
 or reinstall. The last-successful version marker is removed on uninstall.
 
@@ -123,8 +128,9 @@ sudo scripts/services restart
 sudo scripts/services stop
 ```
 
-Start and stop operate only on BMCyber. Restart validates application
-configuration before stopping. These commands leave Fail2ban and its jails running.
+Start brings up BMCyber before Fail2ban and the two MyCount jails. Stop stops
+only those jails before BMCyber. Restart validates application and Fail2ban
+configuration first. Unrelated Fail2ban jails remain running.
 `scripts/services` always launches the installed `bmcyber.services` module with
 the production venv. Its systemd interface is also used by the installer.
 Add the account running any non-root action client to the `bmcyber` group and
@@ -227,7 +233,8 @@ insertion, explicit adapter removal, unrelated-table preservation, root service
 start/stop/restart, actual IPC group permissions, malformed-message recovery,
 client error status, systemd unit verification, and install/upgrade/uninstall
 ownership and failure behavior using service fixtures. Application journal
-detection and native Fail2ban integration will require their own acceptance checks.
+detection still requires the real-host acceptance described in the
+[integration guide]({{ site.baseurl }}{% link pages/mycount-integration.md %}).
 
 Installation tests also exercise a real offline wheel install and dependency
 upgrade, `pip check`, failed runtime imports, preserved success markers and

@@ -3,11 +3,13 @@ import subprocess
 
 from bmcyber.constants.DInstallation import DInstallation
 from bmcyber.constants.DService import DService
+from bmcyber.interface.MyCountJails import MyCountJails
 
 
 class ServiceControl:
     def __init__(self, *, run=subprocess.run):
         self.run = run
+        self.jails = MyCountJails(run=run)
 
     def command(self, *arguments):
         return self.run([DService.SYSTEMCTL, *arguments], check=True, text=True,
@@ -18,8 +20,10 @@ class ServiceControl:
             self.command('enable', '--now', DService.UNIT)
         else:
             self.command('start', DService.UNIT)
+        self.jails.start()
 
     def stop(self):
+        self.jails.stop()
         self.command('stop', DService.UNIT)
 
     def disable(self):

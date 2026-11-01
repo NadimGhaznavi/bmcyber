@@ -4,18 +4,23 @@
 
 ### Summary
 
-Refresh the pinned BMForge guidance, remove the unused file-based integration, and refactor BMCyber's installation and service controls around application-owned interfaces. Production Python validation and host journal preflight now prepare the application for the separate MyCount integration.
+Refactor installation and service controls around the updated BMForge contracts and add MyCount's journal-based abuse detection. Two initially disabled jails count collection requests and malformed submissions per IP, then reuse the existing acknowledged ban action and kernel-owned expiry.
+
+### Added
+
+- Add a native journal-aware MyCount filter scoped to `mycount-server.service`, plus independent disabled flood (60 requests/60 seconds) and malformed-payload (5 events/60 seconds) jails. Match numeric IPv4/IPv6 with native journal-prefix handling and keep Fail2ban's 20-hour ticket interval separate from BMCyber's 20–24-hour enforcement policy.
+- Manage both owned jails in explicit service order, preserve operator jail settings through upgrade/uninstall/reinstall, and leave unrelated jails running. Add native Fail2ban configuration/counter/action tests with synthetic journal metadata and real CLI/IPC failures; document the outstanding real Caddy/MyCount/systemd acceptance before activation.
 
 ### Removed
 
-- Remove the unused `fail2safe` filter, sample MyCount logfile jail, jail retention and service controls, polling integration test, and obsolete English/Ukrainian integration guides. Keep the ban service, acknowledged client and ban-only Fail2ban action; lifecycle commands no longer start or control Fail2ban jails.
+- Remove the unused `fail2safe` filter, sample MyCount logfile jail, its retention and controls, polling integration test, and obsolete English/Ukrainian integration guides. Retain the ban service, acknowledged client and ban-only Fail2ban action for the journal integration.
 - Drop preservation and restoration of the unused jail across upgrade, uninstall and reinstall. Existing deployments are disposable, so no migration is provided; this change does not modify or redeploy Wintermute.
 
 ### Changed
 
 - Move deployment and host-resource interfaces into `bmcyber/interface/`, centralize deployment/service identifiers, and share systemd controls between installation and the service CLI. Run `scripts/services` through the installed production venv and use English catalogue keys for installation and service-control CLI messages.
 - Apply installation specification `0.1.3` to the actual installer: reject editable/development requirements and damaged or globally exposed environments; verify host venv support before mutation, run deployed `pip check` and runtime imports before activation, and retain last-successful markers on failure.
-- Preflight native Fail2ban journal bindings and system-journal access with the verified host interpreter before install/upgrade changes. Uninstall no longer requires Fail2ban executables or journal access. No application filter or jail is introduced in this stage.
+- Preflight native Fail2ban journal bindings and system-journal access with the verified host interpreter before install/upgrade changes. Uninstall requires the native client only when stopping a running Fail2ban integration; journal access is not required for removal.
 - Extend failure, ownership and service-order coverage, including real offline dependency installation/upgrade and deployed entry-point imports with the checkout unavailable; refresh operator documentation.
 - Refresh all eight installed BMForge skill bundles and the project-local manager to upstream revision `efb49f99fc86`; update each bundle's integrity fingerprint and source revision in the lock file.
 - Update the pinned Fail2ban specification from `0.2.0` to `0.3.0` and installation specification from `0.1.2` to `0.1.3`, including the bundled installer template and shared component catalogue. This maintenance update does not migrate application code, add optional skills, install dependencies or alter host configuration.

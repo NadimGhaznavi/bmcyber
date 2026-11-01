@@ -10,6 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 from bmcyber.constants.DInstallation import DInstallation
 from bmcyber.constants.DService import DService
+from bmcyber.constants.DFail2ban import DFail2ban
 from bmcyber.interface.Installation import Installation, relative_path
 from bmcyber.interface.ServiceInstallation import ServiceInstallation
 
@@ -66,7 +67,7 @@ def deployment(tmp_path):
     server.write_text('#! /usr/bin/python3\n')
     firewall = Firewall()
     host = ServiceInstallation(ROOT, destination, root=tmp_path / 'host', run=run,
-                               which=lambda executable: str(server) if executable == DService.FAIL2BAN_SERVER else executable,
+                               which=lambda executable: str(server) if executable == DFail2ban.SERVER else executable,
                                firewall=firewall)
     installation = Installation(ROOT, destination=destination, host=host, run=run)
     return installation, host, calls
@@ -98,8 +99,10 @@ def test_install_reinstall_upgrade_uninstall_and_reinstall_preserve_operator_dat
     data = json.loads(configuration.read_text())
     data['ban']['base_hours'] = 21
     configuration.write_text(json.dumps(data))
+    jail = host.root / host.RESOURCES[DFail2ban.JAIL_SOURCE]
+    jail.write_text(jail.read_text().replace('127.0.0.0/8 ::1', '127.0.0.0/8 ::1 192.0.2.99'))
     unrelated = host.root / 'etc/fail2ban/jail.d/unrelated.local'
-    unrelated.parent.mkdir(parents=True)
+    unrelated.parent.mkdir(parents=True, exist_ok=True)
     unrelated.write_text('[unrelated]\nenabled = false\n')
     (base / 'operator-notes.txt').write_text('keep me')
     installation.apply('install')
@@ -107,15 +110,19 @@ def test_install_reinstall_upgrade_uninstall_and_reinstall_preserve_operator_dat
     assert calls.count([DInstallation.SYSTEM_PYTHON, '-m', 'venv', str(base / '.venv')]) == 1
     assert sum(command[1:4] == ['-m', 'pip', 'install'] for command in calls) == 3
     assert json.loads(configuration.read_text())['ban']['base_hours'] == 21
+    assert '192.0.2.99' in jail.read_text()
     installation.apply('uninstall')
     installation.apply('uninstall')
     assert unrelated.exists()
     assert (base / 'operator-notes.txt').read_text() == 'keep me'
     assert configuration.exists()
+    assert '192.0.2.99' in (base / DFail2ban.RETAINED_JAIL).read_text()
+    assert not jail.exists()
     assert not (base / '.deployment-version').exists()
     assert not (base / '.venv').exists()
     installation.apply('install')
     assert json.loads(configuration.read_text())['ban']['base_hours'] == 21
+    assert '192.0.2.99' in jail.read_text()
 
 
 def test_invalid_configuration_and_unowned_resources_fail_before_stopping(deployment):
@@ -176,6 +183,54 @@ def test_empty_enforcement_removal_hooks():
     assert '<bantime>' not in action['Definition']['actionban']
 
 
+def test_mycount_jails_are_disabled_and_have_independent_policies():
+    import configparser
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(ROOT / DFail2ban.JAIL_SOURCE)
+    assert config.sections() == list(DFail2ban.JAILS)
+    for jail, event, threshold in DFail2ban.RULES:
+        section = config[jail]
+        assert not section.getboolean('enabled')
+        assert section['backend'] == 'systemd'
+        assert 'logpath' not in section
+        assert section['filter'] == f'{DFail2ban.FILTER}[event={event}]'
+        assert section.getint('findtime') == DFail2ban.FINDTIME
+        assert section.getint('maxretry') == threshold
+        assert section['usedns'] == 'no'
+        assert section['action'] == f'bmcyber[source={jail}]'
+
+
+def test_uninstall_needs_no_fail2ban_client_when_daemon_is_inactive(deployment):
+    installation, host, calls = deployment
+    installation.apply('install')
+    normal_run = host.control.jails.run
+
+    def inactive(command, **kwargs):
+        if command[:2] == ['systemctl', 'is-active']:
+            calls.append(command)
+            return subprocess.CompletedProcess(command, DFail2ban.INACTIVE)
+        return normal_run(command, **kwargs)
+
+    host.control.jails.run = inactive
+    host.which = lambda executable: None if executable in (DFail2ban.CLIENT, DFail2ban.SERVER) else executable
+    calls.clear()
+    installation.apply('uninstall', check=True)
+    installation.apply('uninstall')
+    assert not any(command[0] == DFail2ban.CLIENT for command in calls)
+
+
+def test_unsafe_retained_jail_is_rejected_before_stopping(deployment, tmp_path):
+    installation, host, calls = deployment
+    installation.apply('install')
+    retained = installation.destination / DFail2ban.RETAINED_JAIL
+    retained.symlink_to(tmp_path / 'operator-data')
+    for check in (True, False):
+        calls.clear()
+        with pytest.raises(ValueError, match='symlink'):
+            installation.apply('uninstall', check=check)
+        assert not any(command[:2] == ['systemctl', 'stop'] for command in calls)
+
+
 def test_service_lifecycle_leaves_fail2ban_running(deployment):
     installation, host, calls = deployment
     installation.apply('install')
@@ -183,8 +238,10 @@ def test_service_lifecycle_leaves_fail2ban_running(deployment):
     installation.apply('upgrade')
     assert ['systemctl', 'stop', 'bmcyber.service'] in calls
     installation.apply('uninstall')
-    assert not any(command[:2] in (['fail2ban-client', 'stop'], ['fail2ban-client', 'reload'])
-                   or command[0] == 'systemctl' and 'fail2ban.service' in command for command in calls)
+    assert not any(command == ['systemctl', 'stop', 'fail2ban.service'] or command == ['fail2ban-client', 'reload'] for command in calls)
+    for jail in DFail2ban.JAILS:
+        assert ['fail2ban-client', 'stop', jail] in calls
+        assert ['fail2ban-client', 'reload', '--if-exists', jail] in calls
 
 
 def test_venv_preflight_and_dry_run_are_read_only(deployment):
@@ -221,19 +278,19 @@ def test_journal_preflight_fails_before_host_or_file_changes(deployment, check, 
     assert not any(command[0] in ('systemctl', 'groupadd') for command in calls)
 
 
-def test_journal_preflight_checks_fail2ban_interpreter_and_uninstall_needs_no_fail2ban(deployment):
+def test_journal_preflight_checks_fail2ban_interpreter_and_uninstall_needs_no_journal(deployment):
     installation, host, calls = deployment
-    server = Path(host.which(DService.FAIL2BAN_SERVER))
+    server = Path(host.which(DFail2ban.SERVER))
     server.write_text('#!/opt/dev/mycount/.venv/bin/python\n')
     with pytest.raises(ValueError, match='Fail2ban must use the host interpreter'):
         installation.apply('install', check=True)
     assert not installation.destination.exists()
     server.write_text('#! /usr/bin/python3\n')
     installation.apply('install')
-    host.which = lambda executable: None if executable in (DService.FAIL2BAN_CLIENT, DService.FAIL2BAN_SERVER) else executable
+    host.which = lambda executable: None if executable == DFail2ban.SERVER else executable
     calls.clear()
     installation.apply('uninstall')
-    assert not any(command[0] in (DService.FAIL2BAN_CLIENT, DService.FAIL2BAN_SERVER) for command in calls)
+    assert not any('-c' in command or command[0] == DFail2ban.SERVER for command in calls)
 
 
 @pytest.mark.parametrize('damage', ['missing-config', 'missing-python', 'development-home', 'global-packages'])

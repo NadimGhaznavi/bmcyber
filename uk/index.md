@@ -32,6 +32,7 @@ Fail2ban залишаються порожніми. Ядро зберігає б
 
 ## Документація {#documentation}
 
+- [MyCount integration (English)]({{ site.baseurl }}{% link pages/mycount-integration.md %})
 - [Встановлення та експлуатація]({{ site.baseurl }}{% link uk/installation.md %}): залежності, конфігурація, команди життєвого циклу, протокол і перевірка.
 
 Блокування брандмауером хоста захищає обробку запитів

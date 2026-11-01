@@ -11,7 +11,7 @@ from bmcyber.interface.Configuration import Configuration
 from bmcyber.interface.CommandText import command_text
 from bmcyber.zmq.Client import Client
 
-BMFORGE_COMPONENT = {'id': 'bmforge.fail2ban', 'spec_version': '0.2.0'}
+BMFORGE_COMPONENT = {'id': 'bmforge.fail2ban', 'spec_version': '0.3.0'}
 
 
 def main(argv=None):

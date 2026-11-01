@@ -21,6 +21,7 @@ def main(argv=None):
     try:
         if args.action in (ServiceAction.START, ServiceAction.RESTART):
             Configuration.load()
+            control.jails.check()
         if args.action in (ServiceAction.STOP, ServiceAction.RESTART):
             control.stop()
         if args.action in (ServiceAction.START, ServiceAction.RESTART):

@@ -20,6 +20,8 @@ class DInstallation:
     SERVICE_RESOURCES: Final[tuple[tuple[str, str], ...]] = (
         ('systemd/bmcyber.service', 'etc/systemd/system/bmcyber.service'),
         ('fail2ban/action.d/bmcyber.conf', 'etc/fail2ban/action.d/bmcyber.conf'),
+        ('fail2ban/filter.d/bmcyber-mycount.conf', 'etc/fail2ban/filter.d/bmcyber-mycount.conf'),
+        ('fail2ban/jail.d/bmcyber-mycount.local', 'etc/fail2ban/jail.d/bmcyber-mycount.local'),
     )
     VENV_DIR: Final[str] = '.venv'
     SYSTEM_PYTHON: Final[str] = '/usr/bin/python3'

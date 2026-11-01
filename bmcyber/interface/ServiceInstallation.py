@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 
 from bmcyber.constants.DBMCyber import DBMCyber
+from bmcyber.constants.DFail2ban import DFail2ban
 from bmcyber.constants.DInstallation import DInstallation, InstallationAction
 from bmcyber.constants.DService import DService
 from bmcyber.constants.DZMQ import DZMQ
@@ -55,15 +56,21 @@ class ServiceInstallation:
         owned = self.owned()
         if action == InstallationAction.UNINSTALL and not owned:
             return
+        retained = self.destination / DFail2ban.RETAINED_JAIL
+        self.safe(retained)
+        if retained.exists() and not retained.is_file():
+            raise ValueError(f'Retained jail configuration is not a regular file: {retained}')
         required = (DService.SYSTEMCTL, DPolicy.NFT_EXECUTABLE)
         if action != InstallationAction.UNINSTALL:
-            required += (DService.FAIL2BAN_CLIENT, DService.FAIL2BAN_SERVER)
+            required += (DFail2ban.CLIENT, DFail2ban.SERVER)
             try:
                 grp.getgrnam(DZMQ.GROUP)
             except KeyError:
                 required += (DService.GROUPADD,)
             self.safe(self.destination / DBMCyber.CONFIG_FILE)
             Configuration.load(self.destination / DBMCyber.CONFIG_FILE)
+        elif self.control.jails.running():
+            required += (DFail2ban.CLIENT,)
         for executable in required:
             if self.which(executable) is None:
                 raise ValueError(f'missing required executable: {executable}')
@@ -77,14 +84,14 @@ class ServiceInstallation:
         if action != InstallationAction.UNINSTALL:
             self.check_journal()
             self.firewall.initialize(check=True)
-            self.command(DService.FAIL2BAN_CLIENT, '-t')
+            self.control.jails.check()
         elif owned and self.firewall.exists():
             self.firewall.inspect()
 
     def check_journal(self):
         # Support the distribution's host interpreter explicitly; never probe
         # journal bindings in BMCyber's venv or guess an alternative interpreter.
-        server = Path(self.which(DService.FAIL2BAN_SERVER))
+        server = Path(self.which(DFail2ban.SERVER))
         with server.open() as stream:
             interpreter = stream.readline().removeprefix('#!').strip()
         if interpreter != DInstallation.SYSTEM_PYTHON:
@@ -127,9 +134,16 @@ class ServiceInstallation:
                           (json.dumps(list(self.RESOURCES.values()), indent=2) + '\n').encode())
         for original, relative in self.RESOURCES.items():
             target = self.root / relative
-            self.atomic_write(target, (self.checkout / original).read_bytes())
+            if original == DFail2ban.JAIL_SOURCE:
+                if target.exists():
+                    continue
+                retained = self.destination / DFail2ban.RETAINED_JAIL
+                content = retained.read_bytes() if retained.exists() else (self.checkout / original).read_bytes()
+            else:
+                content = (self.checkout / original).read_bytes()
+            self.atomic_write(target, content)
         self.control.reload()
-        self.command(DService.FAIL2BAN_CLIENT, '-t')
+        self.control.jails.check()
 
     def start(self):
         self.control.start(enable=True)
@@ -142,6 +156,9 @@ class ServiceInstallation:
         if not owned:
             return
         self.stop()
+        jail = self.root / self.RESOURCES[DFail2ban.JAIL_SOURCE]
+        if jail.exists():
+            self.atomic_write(self.destination / DFail2ban.RETAINED_JAIL, jail.read_bytes())
         self.control.disable()
         self.firewall.uninstall()
         for relative in owned:

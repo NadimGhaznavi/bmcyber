@@ -14,8 +14,8 @@ permalink: /
 
 BMCyber adds host-local timed IP blocking to application abuse detection.
 The thin client sends ban requests over a Linux IPC socket; the root BMCyber
-service blocks the address with nftables. Application-specific detection
-filters and jails are not currently supplied.
+service blocks the address with nftables. Two initially disabled Fail2ban jails
+consume MyCount's systemd journal for request floods and malformed submissions.
 
 The default block lasts **20 hours plus a random 0–4 hours** and covers all
 inbound traffic from the address. Fail2ban's unban, stop and flush hooks are
@@ -29,6 +29,7 @@ The service runs as root. Non-root clients connect through membership in the
 
 ## Documentation
 
+- [MyCount integration]({{ site.baseurl }}{% link pages/mycount-integration.md %}): journal events, thresholds, exemptions and activation checks.
 - [Installation and operation]({{ site.baseurl }}{% link pages/installation.md %}): dependencies, configuration, lifecycle commands, protocol and verification.
 
 Host firewall blocking protects application processing; upstream link

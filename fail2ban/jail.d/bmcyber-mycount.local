@@ -1,0 +1,23 @@
+# Verify real MyCount journal delivery and operator exemptions before enabling.
+[bmcyber-mycount-flood]
+enabled = false
+backend = systemd
+filter = bmcyber-mycount[event=collection_request]
+usedns = no
+findtime = 60
+maxretry = 60
+bantime = 20h
+ignoreip = 127.0.0.0/8 ::1
+action = bmcyber[source=bmcyber-mycount-flood]
+
+[bmcyber-mycount-malformed]
+enabled = false
+backend = systemd
+filter = bmcyber-mycount[event=malformed_payload]
+usedns = no
+findtime = 60
+maxretry = 5
+bantime = 20h
+ignoreip = 127.0.0.0/8 ::1
+action = bmcyber[source=bmcyber-mycount-malformed]
+
